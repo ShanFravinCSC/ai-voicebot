@@ -1,0 +1,19 @@
+{
+  "name": "ai-voicebot",
+  "version": "1.0.0",
+  "description": "AI Conversational Voicebot POC",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "express": "^5.0.0",
+    "openai": "^6.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}

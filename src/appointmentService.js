@@ -1,0 +1,1584 @@
+// ========================================
+// NOVACARE APPOINTMENT SERVICE
+// ========================================
+//
+// Business logic layer.
+//
+// Handles:
+// - Date validation
+// - Time validation
+// - Working hours
+// - Availability
+// - Alternative slots
+// - Booking
+// - Appointment lookup
+// - Cancellation
+// - Rescheduling
+//
+// Persistence is handled by:
+// appointmentRepository.js
+// ========================================
+
+import {
+    createAppointment,
+    findAppointmentByConfirmationNumber,
+    updateAppointment,
+    findAppointmentsByDate
+} from "./appointmentRepository.js";
+
+
+// ========================================
+// CONFIGURATION
+// ========================================
+
+const BUSINESS_HOURS = {
+    start: 9,
+    end: 17
+};
+
+const APPOINTMENT_DURATION = 30;
+
+const MAX_APPOINTMENTS_PER_SLOT = 1;
+
+const WORKING_DAYS = [
+    1, // Monday
+    2, // Tuesday
+    3, // Wednesday
+    4, // Thursday
+    5  // Friday
+];
+
+
+// ========================================
+// DATE HELPERS
+// ========================================
+
+function formatDate(date) {
+
+    const year =
+        date.getFullYear();
+
+    const month =
+        String(
+            date.getMonth() + 1
+        ).padStart(2, "0");
+
+    const day =
+        String(
+            date.getDate()
+        ).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
+
+
+// ========================================
+// NORMALIZE DATE
+// ========================================
+
+function normalizeDate(date) {
+
+    if (!date) {
+        return null;
+    }
+
+    const value =
+        String(date)
+            .trim()
+            .toLowerCase();
+
+
+    // TODAY
+    if (value === "today") {
+
+        return formatDate(
+            new Date()
+        );
+    }
+
+
+    // TOMORROW
+    if (value === "tomorrow") {
+
+        const tomorrow =
+            new Date();
+
+        tomorrow.setDate(
+            tomorrow.getDate() + 1
+        );
+
+        return formatDate(
+            tomorrow
+        );
+    }
+
+
+    // DAY AFTER TOMORROW
+    if (
+        value ===
+        "day after tomorrow"
+    ) {
+
+        const date =
+            new Date();
+
+        date.setDate(
+            date.getDate() + 2
+        );
+
+        return formatDate(
+            date
+        );
+    }
+
+
+    // NEXT WEEKDAY
+    const nextDay =
+        value.match(
+            /^next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/
+        );
+
+    if (nextDay) {
+
+        return getNextWeekdayDate(
+            nextDay[1]
+        );
+    }
+
+
+    // WEEKDAY
+    const weekdays = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday"
+    ];
+
+    if (
+        weekdays.includes(value)
+    ) {
+
+        return getNextWeekdayDate(
+            value
+        );
+    }
+
+
+    // YYYY-MM-DD
+    if (
+        /^\d{4}-\d{2}-\d{2}$/.test(
+            value
+        )
+    ) {
+
+        return value;
+    }
+
+
+    // DD/MM/YYYY
+    const slashMatch =
+        value.match(
+            /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+        );
+
+    if (slashMatch) {
+
+        const day =
+            slashMatch[1]
+                .padStart(2, "0");
+
+        const month =
+            slashMatch[2]
+                .padStart(2, "0");
+
+        const year =
+            slashMatch[3];
+
+        return `${year}-${month}-${day}`;
+    }
+
+
+    // DD-MM-YYYY
+    const dashMatch =
+        value.match(
+            /^(\d{1,2})-(\d{1,2})-(\d{4})$/
+        );
+
+    if (dashMatch) {
+
+        const day =
+            dashMatch[1]
+                .padStart(2, "0");
+
+        const month =
+            dashMatch[2]
+                .padStart(2, "0");
+
+        const year =
+            dashMatch[3];
+
+        return `${year}-${month}-${day}`;
+    }
+
+
+    // MONTH DAY
+    // August 31
+    // August 31 2026
+    const monthDate =
+        value.match(
+            /^(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?$/
+        );
+
+    if (monthDate) {
+
+        const monthNames = [
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december"
+        ];
+
+        const month =
+            monthNames.indexOf(
+                monthDate[1]
+            ) + 1;
+
+        const day =
+            Number(
+                monthDate[2]
+            );
+
+        const year =
+            monthDate[3]
+                ? Number(monthDate[3])
+                : new Date().getFullYear();
+
+        return (
+            `${year}-` +
+            `${String(month).padStart(2, "0")}-` +
+            `${String(day).padStart(2, "0")}`
+        );
+    }
+
+
+    // DAY MONTH
+    // 31 August
+    // 31 August 2026
+    const dateMonth =
+        value.match(
+            /^(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?$/
+        );
+
+    if (dateMonth) {
+
+        const monthNames = [
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december"
+        ];
+
+        const day =
+            Number(
+                dateMonth[1]
+            );
+
+        const month =
+            monthNames.indexOf(
+                dateMonth[2]
+            ) + 1;
+
+        const year =
+            dateMonth[3]
+                ? Number(dateMonth[3])
+                : new Date().getFullYear();
+
+        return (
+            `${year}-` +
+            `${String(month).padStart(2, "0")}-` +
+            `${String(day).padStart(2, "0")}`
+        );
+    }
+
+
+    return null;
+}
+
+
+// ========================================
+// NEXT WEEKDAY
+// ========================================
+
+function getNextWeekdayDate(
+    weekday
+) {
+
+    const days = {
+        sunday: 0,
+        monday: 1,
+        tuesday: 2,
+        wednesday: 3,
+        thursday: 4,
+        friday: 5,
+        saturday: 6
+    };
+
+    const target =
+        days[weekday];
+
+    if (
+        target === undefined
+    ) {
+        return null;
+    }
+
+    const today =
+        new Date();
+
+    const current =
+        today.getDay();
+
+    let difference =
+        target - current;
+
+    if (
+        difference <= 0
+    ) {
+        difference += 7;
+    }
+
+    const result =
+        new Date(today);
+
+    result.setDate(
+        today.getDate() +
+        difference
+    );
+
+    return formatDate(
+        result
+    );
+}
+
+
+// ========================================
+// VALIDATE DATE
+// ========================================
+
+function isValidDate(
+    dateString
+) {
+
+    if (
+        !dateString ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+            dateString
+        )
+    ) {
+        return false;
+    }
+
+    const date =
+        new Date(
+            `${dateString}T00:00:00`
+        );
+
+    return (
+        !Number.isNaN(
+            date.getTime()
+        ) &&
+        formatDate(date) ===
+            dateString
+    );
+}
+
+
+// ========================================
+// PAST DATE
+// ========================================
+
+function isPastDate(
+    dateString
+) {
+
+    const today =
+        formatDate(
+            new Date()
+        );
+
+    return (
+        dateString <
+        today
+    );
+}
+
+
+// ========================================
+// WEEKEND
+// ========================================
+
+function isWeekend(
+    dateString
+) {
+
+    const date =
+        new Date(
+            `${dateString}T00:00:00`
+        );
+
+    const day =
+        date.getDay();
+
+    return !WORKING_DAYS.includes(
+        day
+    );
+}
+
+
+// ========================================
+// VALIDATE APPOINTMENT DATE
+// ========================================
+
+export function validateAppointmentDate(
+    date
+) {
+
+    const normalizedDate =
+        normalizeDate(date);
+
+    if (!normalizedDate) {
+
+        return {
+            valid: false,
+            reason:
+                "I couldn't understand that date."
+        };
+    }
+
+    if (
+        !isValidDate(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            valid: false,
+            reason:
+                "That doesn't appear to be a valid date."
+        };
+    }
+
+    if (
+        isPastDate(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            valid: false,
+            reason:
+                "Appointments cannot be booked for a past date."
+        };
+    }
+
+    if (
+        isWeekend(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            valid: false,
+            reason:
+                "Appointments are available Monday to Friday."
+        };
+    }
+
+    return {
+        valid: true,
+        date:
+            normalizedDate
+    };
+}
+
+
+// ========================================
+// NORMALIZE TIME
+// ========================================
+
+function normalizeTime(
+    time
+) {
+
+    if (!time) {
+        return null;
+    }
+
+    const value =
+        String(time)
+            .trim()
+            .toLowerCase();
+
+
+    // Remove unnecessary spaces
+    const cleaned =
+        value.replace(
+            /\s+/g,
+            " "
+        );
+
+
+    // AM / PM
+    // 10 AM
+    // 10:30 AM
+    // 10am
+    // 10:30pm
+    const amPmMatch =
+        cleaned.match(
+            /^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)$/
+        );
+
+    if (amPmMatch) {
+
+        let hour =
+            Number(
+                amPmMatch[1]
+            );
+
+        const minute =
+            Number(
+                amPmMatch[2] || "0"
+            );
+
+        const period =
+            amPmMatch[3];
+
+        if (
+            hour < 1 ||
+            hour > 12 ||
+            minute < 0 ||
+            minute > 59
+        ) {
+            return null;
+        }
+
+        if (
+            period === "pm" &&
+            hour !== 12
+        ) {
+            hour += 12;
+        }
+
+        if (
+            period === "am" &&
+            hour === 12
+        ) {
+            hour = 0;
+        }
+
+        return (
+            String(hour).padStart(2, "0") +
+            ":" +
+            String(minute).padStart(2, "0")
+        );
+    }
+
+
+    // 24 HOUR
+    const twentyFour =
+        cleaned.match(
+            /^([01]\d|2[0-3]):([0-5]\d)$/
+        );
+
+    if (twentyFour) {
+
+        return twentyFour[0];
+    }
+
+
+    return null;
+}
+
+
+// ========================================
+// TIME TO MINUTES
+// ========================================
+
+function timeToMinutes(
+    time
+) {
+
+    const [
+        hour,
+        minute
+    ] =
+        time
+            .split(":")
+            .map(Number);
+
+    return (
+        hour * 60 +
+        minute
+    );
+}
+
+
+// ========================================
+// MINUTES TO TIME
+// ========================================
+
+function minutesToTime(
+    minutes
+) {
+
+    const hour =
+        Math.floor(
+            minutes / 60
+        );
+
+    const minute =
+        minutes % 60;
+
+    return (
+        String(hour)
+            .padStart(2, "0") +
+        ":" +
+        String(minute)
+            .padStart(2, "0")
+    );
+}
+
+
+// ========================================
+// FORMAT TIME FOR SPEECH
+// ========================================
+
+export function formatTimeForSpeech(
+    time
+) {
+
+    if (!time) {
+        return "";
+    }
+
+    const normalized =
+        normalizeTime(time);
+
+    if (!normalized) {
+        return String(time);
+    }
+
+    const [
+        hourString,
+        minuteString
+    ] =
+        normalized.split(":");
+
+    let hour =
+        Number(hourString);
+
+    const minute =
+        minuteString;
+
+    const period =
+        hour >= 12
+            ? "PM"
+            : "AM";
+
+    if (hour === 0) {
+        hour = 12;
+    }
+
+    if (hour > 12) {
+        hour -= 12;
+    }
+
+    if (
+        minute === "00"
+    ) {
+
+        return `${hour} ${period}`;
+    }
+
+    return (
+        `${hour}:${minute} ${period}`
+    );
+}
+
+
+// ========================================
+// FORMAT DATE FOR SPEECH
+// ========================================
+
+export function formatDateForSpeech(
+    date
+) {
+
+    if (!date) {
+        return "";
+    }
+
+    const normalized =
+        normalizeDate(date);
+
+    if (!normalized) {
+        return String(date);
+    }
+
+    const parsedDate =
+        new Date(
+            `${normalized}T00:00:00`
+        );
+
+    return parsedDate.toLocaleDateString(
+        "en-US",
+        {
+            month: "long",
+            day: "numeric",
+            year: "numeric"
+        }
+    );
+}
+
+
+///// Voice Speech/////
+
+export function formatConfirmationForSpeech(confirmationNumber) {
+    if (!confirmationNumber) {
+        return "";
+    }
+
+    const value = String(confirmationNumber)
+        .trim()
+        .toUpperCase();
+
+    const match = value.match(/^NC-(\d+)-(\d+)$/);
+
+    if (!match) {
+        return value;
+    }
+
+    const [, mainNumber, suffix] = match;
+
+    const spokenMain = mainNumber
+        .split("")
+        .join(" ");
+
+    const spokenSuffix = suffix
+        .split("")
+        .join(" ");
+
+    return `N C. ${spokenMain}. ${spokenSuffix}`;
+}
+
+
+// ========================================
+// BUSINESS HOURS
+// ========================================
+
+function isWithinBusinessHours(
+    time
+) {
+
+    const minutes =
+        timeToMinutes(
+            time
+        );
+
+    const start =
+        BUSINESS_HOURS.start * 60;
+
+    const end =
+        BUSINESS_HOURS.end * 60;
+
+    // Appointment must finish
+    // before closing time.
+    const appointmentEnd =
+        minutes +
+        APPOINTMENT_DURATION;
+
+    return (
+        minutes >= start &&
+        appointmentEnd <= end
+    );
+}
+
+
+// ========================================
+// CHECK AVAILABILITY
+// ========================================
+
+export async function checkAvailability(
+    date,
+    time
+) {
+
+    const normalizedDate =
+        normalizeDate(date);
+
+    const normalizedTime =
+        normalizeTime(time);
+
+
+    // DATE
+    if (!normalizedDate) {
+
+        return {
+            available: false,
+            reason:
+                "Invalid appointment date."
+        };
+    }
+
+
+    if (
+        !isValidDate(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            available: false,
+            reason:
+                "Invalid appointment date."
+        };
+    }
+
+
+    // PAST
+    if (
+        isPastDate(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            available: false,
+            reason:
+                "Appointments cannot be booked for a past date."
+        };
+    }
+
+
+    // WEEKEND
+    if (
+        isWeekend(
+            normalizedDate
+        )
+    ) {
+
+        return {
+            available: false,
+            reason:
+                "Appointments are available Monday to Friday."
+        };
+    }
+
+
+    // TIME
+    if (!normalizedTime) {
+
+        return {
+            available: false,
+            reason:
+                "Invalid appointment time."
+        };
+    }
+
+
+    // BUSINESS HOURS
+    if (
+        !isWithinBusinessHours(
+            normalizedTime
+        )
+    ) {
+
+        return {
+            available: false,
+            reason:
+                "Appointments are available between 9 AM and 5 PM."
+        };
+    }
+
+
+    // DATABASE
+    const appointments =
+        await findAppointmentsByDate(
+            normalizedDate
+        );
+
+
+    const matchingAppointments =
+        appointments.filter(
+            appointment =>
+                appointment.time ===
+                    normalizedTime &&
+                appointment.status ===
+                    "CONFIRMED"
+        );
+
+
+    if (
+        matchingAppointments.length >=
+        MAX_APPOINTMENTS_PER_SLOT
+    ) {
+
+        return {
+            available: false,
+            date:
+                normalizedDate,
+            time:
+                normalizedTime,
+            reason:
+                "That time slot is already booked."
+        };
+    }
+
+
+    return {
+        available: true,
+        date:
+            normalizedDate,
+        time:
+            normalizedTime
+    };
+}
+
+
+// ========================================
+// ALTERNATIVE SLOTS
+// ========================================
+
+export async function getAlternativeSlots(
+    date,
+    requestedTime,
+    limit = 3
+) {
+
+    const normalizedDate =
+        normalizeDate(date);
+
+    const normalizedTime =
+        normalizeTime(
+            requestedTime
+        );
+
+    if (
+        !normalizedDate ||
+        !normalizedTime
+    ) {
+
+        return {
+            success: false,
+            slots: []
+        };
+    }
+
+
+    const validation =
+        validateAppointmentDate(
+            normalizedDate
+        );
+
+    if (
+        !validation.valid
+    ) {
+
+        return {
+            success: false,
+            slots: []
+        };
+    }
+
+
+    const appointments =
+        await findAppointmentsByDate(
+            normalizedDate
+        );
+
+
+    const bookedTimes =
+        new Set(
+            appointments
+                .filter(
+                    appointment =>
+                        appointment.status ===
+                        "CONFIRMED"
+                )
+                .map(
+                    appointment =>
+                        appointment.time
+                )
+        );
+
+
+    const requestedMinutes =
+        timeToMinutes(
+            normalizedTime
+        );
+
+
+    const slots = [];
+
+
+    const offsets = [
+        -120,
+        -90,
+        -60,
+        -30,
+        30,
+        60,
+        90,
+        120
+    ];
+
+
+    for (
+        const offset of offsets
+    ) {
+
+        if (
+            slots.length >= limit
+        ) {
+            break;
+        }
+
+
+        const candidateMinutes =
+            requestedMinutes +
+            offset;
+
+
+        const candidateTime =
+            minutesToTime(
+                candidateMinutes
+            );
+
+
+        if (
+            !isWithinBusinessHours(
+                candidateTime
+            )
+        ) {
+            continue;
+        }
+
+
+        if (
+            bookedTimes.has(
+                candidateTime
+            )
+        ) {
+            continue;
+        }
+
+
+        if (
+            slots.some(
+                slot =>
+                    slot.time ===
+                    candidateTime
+            )
+        ) {
+            continue;
+        }
+
+
+        slots.push({
+
+            time:
+                candidateTime,
+
+            display:
+                formatTimeForSpeech(
+                    candidateTime
+                )
+
+        });
+    }
+
+
+    return {
+        success: true,
+        slots
+    };
+}
+
+
+// ========================================
+// ID GENERATOR
+// ========================================
+
+function generateAppointmentId() {
+
+    return (
+        "NC-" +
+        Date.now() +
+        "-" +
+        Math.floor(
+            Math.random() * 1000
+        )
+    );
+}
+
+
+// ========================================
+// NORMALIZE CONFIRMATION NUMBER
+// ========================================
+
+function normalizeConfirmationNumber(
+    confirmationNumber
+) {
+
+    if (
+        confirmationNumber ===
+        null ||
+        confirmationNumber ===
+        undefined
+    ) {
+        return null;
+    }
+
+    return String(
+        confirmationNumber
+    )
+        .trim()
+        .toUpperCase();
+}
+
+
+// ========================================
+// BOOK APPOINTMENT
+// ========================================
+
+export async function bookAppointment({
+    date,
+    time,
+    customerName = "Guest",
+    customerPhone = null,
+    reason = null
+}) {
+
+    const availability =
+        await checkAvailability(
+            date,
+            time
+        );
+
+
+    if (
+        !availability.available
+    ) {
+
+        return {
+            success: false,
+            error:
+                availability.reason
+        };
+    }
+
+
+    const appointment = {
+
+        id:
+            generateAppointmentId(),
+
+        confirmationNumber:
+            generateAppointmentId(),
+
+        customerName,
+
+        customerPhone,
+
+        reason,
+
+        date:
+            availability.date,
+
+        time:
+            availability.time,
+
+        status:
+            "CONFIRMED",
+
+        createdAt:
+            new Date().toISOString(),
+
+        updatedAt:
+            new Date().toISOString()
+
+    };
+
+
+    const saved =
+        await createAppointment(
+            appointment
+        );
+
+
+    return {
+        success: true,
+        appointment:
+            saved
+    };
+}
+
+
+// ========================================
+// GET APPOINTMENT
+// ========================================
+
+export async function getAppointment(
+    appointmentId
+) {
+
+    const confirmationNumber =
+        normalizeConfirmationNumber(
+            appointmentId
+        );
+
+
+    if (!confirmationNumber) {
+
+        return null;
+    }
+
+
+    const appointment =
+        await findAppointmentByConfirmationNumber(
+            confirmationNumber
+        );
+
+
+    return appointment;
+}
+
+
+// ========================================
+// CANCEL APPOINTMENT
+// ========================================
+
+export async function cancelAppointment(
+    appointmentId
+) {
+
+    const confirmationNumber =
+        normalizeConfirmationNumber(
+            appointmentId
+        );
+
+
+    if (!confirmationNumber) {
+
+        return {
+            success: false,
+            error:
+                "Please provide a valid appointment confirmation number."
+        };
+    }
+
+
+    const appointment =
+        await getAppointment(
+            confirmationNumber
+        );
+
+
+    if (!appointment) {
+
+        return {
+            success: false,
+            error:
+                "Appointment not found."
+        };
+    }
+
+
+    if (
+        appointment.status ===
+        "CANCELLED"
+    ) {
+
+        return {
+            success: false,
+            error:
+                "This appointment is already cancelled.",
+            appointment
+        };
+    }
+
+
+    if (
+        appointment.status !==
+        "CONFIRMED"
+    ) {
+
+        return {
+            success: false,
+            error:
+                "Only confirmed appointments can be cancelled.",
+            appointment
+        };
+    }
+
+
+    const updated =
+        await updateAppointment(
+            appointment.id,
+            {
+                status:
+                    "CANCELLED",
+
+                cancelledAt:
+                    new Date().toISOString()
+            }
+        );
+
+
+    if (!updated) {
+
+        return {
+            success: false,
+            error:
+                "Unable to cancel the appointment."
+        };
+    }
+
+
+    return {
+        success: true,
+        message:
+            "Appointment cancelled successfully.",
+        appointment:
+            updated
+    };
+}
+
+
+// ========================================
+// RESCHEDULE APPOINTMENT
+// ========================================
+
+export async function rescheduleAppointment(
+    appointmentId,
+    newDate,
+    newTime
+) {
+
+    const confirmationNumber =
+        normalizeConfirmationNumber(
+            appointmentId
+        );
+
+
+    if (!confirmationNumber) {
+
+        return {
+            success: false,
+            error:
+                "Please provide a valid appointment confirmation number."
+        };
+    }
+
+
+    const appointment =
+        await getAppointment(
+            confirmationNumber
+        );
+
+
+    if (!appointment) {
+
+        return {
+            success: false,
+            error:
+                "Appointment not found."
+        };
+    }
+
+
+    if (
+        appointment.status !==
+        "CONFIRMED"
+    ) {
+
+        return {
+            success: false,
+            error:
+                "Only confirmed appointments can be rescheduled."
+        };
+    }
+
+
+    const normalizedDate =
+        normalizeDate(
+            newDate
+        );
+
+    const normalizedTime =
+        normalizeTime(
+            newTime
+        );
+
+
+    if (
+        !normalizedDate ||
+        !normalizedTime
+    ) {
+
+        return {
+            success: false,
+            error:
+                "Invalid new appointment date or time."
+        };
+    }
+
+
+    // DATE VALIDATION
+    const validation =
+        validateAppointmentDate(
+            normalizedDate
+        );
+
+
+    if (
+        !validation.valid
+    ) {
+
+        return {
+            success: false,
+            error:
+                validation.reason
+        };
+    }
+
+
+    // TIME VALIDATION
+    if (
+        !isWithinBusinessHours(
+            normalizedTime
+        )
+    ) {
+
+        return {
+            success: false,
+            error:
+                "Appointments are available between 9 AM and 5 PM."
+        };
+    }
+
+
+    // CHECK NEW DATE
+    const appointments =
+        await findAppointmentsByDate(
+            normalizedDate
+        );
+
+
+    // IMPORTANT:
+    // Ignore the current appointment
+    // when checking the new slot.
+    const conflict =
+        appointments.some(
+            item =>
+                item.id !==
+                    appointment.id &&
+                item.status ===
+                    "CONFIRMED" &&
+                item.time ===
+                    normalizedTime
+        );
+
+
+    if (conflict) {
+
+        return {
+            success: false,
+            error:
+                "That time slot is already booked."
+        };
+    }
+
+
+    const updated =
+        await updateAppointment(
+            appointment.id,
+            {
+                date:
+                    normalizedDate,
+
+                time:
+                    normalizedTime,
+
+                status:
+                    "CONFIRMED",
+
+                rescheduledAt:
+                    new Date().toISOString()
+            }
+        );
+
+
+    if (!updated) {
+
+        return {
+            success: false,
+            error:
+                "Unable to reschedule the appointment."
+        };
+    }
+
+
+    return {
+        success: true,
+        message:
+            "Appointment rescheduled successfully.",
+        appointment:
+            updated
+    };
+}
+
+
+// ========================================
+// EXPORT CONFIGURATION
+// ========================================
+
+export const appointmentConfig = {
+
+    businessHours: {
+        start:
+            BUSINESS_HOURS.start,
+
+        end:
+            BUSINESS_HOURS.end
+    },
+
+    appointmentDuration:
+        APPOINTMENT_DURATION,
+
+    workingDays:
+        WORKING_DAYS,
+
+    maxAppointmentsPerSlot:
+        MAX_APPOINTMENTS_PER_SLOT
+
+};

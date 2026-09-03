@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>NovaCare AI Voicebot</title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+</head>
+
+
+<body>
+
+    <div class="container">
+
+        <header>
+
+            <div class="logo">
+                🎙️
+            </div>
+
+            <h1>
+                NovaCare AI Voicebot
+            </h1>
+
+            <p class="subtitle">
+                AI Conversational Appointment Assistant
+            </p>
+
+            <div class="status">
+
+                <span id="statusDot"></span>
+
+                <span id="statusText">
+                    Ready
+                </span>
+
+            </div>
+
+        </header>
+
+
+        <main>
+
+
+            <!-- ========================================
+                 CONVERSATION
+            ========================================= -->
+
+            <div
+                class="conversation"
+                id="conversation"
+            >
+
+                <div class="message bot">
+
+                    <strong>
+                        Nova
+                    </strong>
+
+                    <p>
+                        Hello! I'm Nova, your AI appointment
+                        assistant. How can I help you today?
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <!-- ========================================
+                 HUMAN SUPPORT PANEL
+            ========================================= -->
+
+            <div
+                id="humanSupportPanel"
+                class="human-support-panel"
+                hidden
+            >
+
+                <div class="support-header">
+
+                    <h3>
+                        Human Support
+                    </h3>
+
+                    <p>
+                        A NovaCare support agent is ready
+                        to assist you.
+                    </p>
+
+                </div>
+
+
+                <button
+                    id="joinSupportButton"
+                    type="button"
+                >
+                    Join Support Call
+                </button>
+
+
+                <div
+                    id="jitsiContainer"
+                ></div>
+
+            </div>
+
+
+            <!-- ========================================
+                 VOICE CONTROLS
+            ========================================= -->
+
+            <div class="controls">
+
+                <button
+                    id="micButton"
+                    class="mic-button"
+                    type="button"
+                >
+                    🎤
+                </button>
+
+                <p id="instruction">
+                    Click the microphone and start speaking
+                </p>
+
+            </div>
+
+
+            <!-- ========================================
+                 TEXT INPUT
+            ========================================= -->
+
+            <div class="text-input">
+
+                <input
+                    type="text"
+                    id="textInput"
+                    placeholder="Or type your message here..."
+                    autocomplete="off"
+                >
+
+                <button
+                    id="sendButton"
+                    type="button"
+                >
+                    Send
+                </button>
+
+            </div>
+
+
+        </main>
+
+    </div>
+
+
+    <!-- ========================================
+         JITSI EXTERNAL API
+    ========================================= -->
+
+    <script
+        src="https://meet.jit.si/external_api.js"
+    ></script>
+
+
+    <!-- ========================================
+         NOVACARE FRONTEND
+    ========================================= -->
+
+    <script src="app.js"></script>
+
+
+</body>
+
+</html>
