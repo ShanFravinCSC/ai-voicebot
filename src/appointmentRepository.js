@@ -234,6 +234,11 @@ export async function findAppointmentByConfirmationNumber(
                         item.confirmationNumber
                     );
 
+                const legacyConfirmation =
+                    normalizeConfirmationNumber(
+                        item.legacyConfirmationNumber
+                    );
+
                 const id =
                     normalizeConfirmationNumber(
                         item.id
@@ -241,6 +246,7 @@ export async function findAppointmentByConfirmationNumber(
 
                 return (
                     confirmation === normalized ||
+                    legacyConfirmation === normalized ||
                     id === normalized
                 );
 

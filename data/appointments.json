@@ -1,14 +1,15 @@
 [
   {
-    "id": "NC-1788360995517-14",
-    "confirmationNumber": "NC-1788360995518-43",
-    "customerName": "sf",
-    "customerPhone": "5678990",
-    "reason": "general",
+    "id": "NC-1788606117256-519",
+    "confirmationNumber": "NC01",
+    "customerName": "Sha",
+    "customerPhone": "713176225",
+    "reason": "general consultation",
     "date": "2026-09-09",
-    "time": "09:00",
-    "status": "CONFIRMED",
-    "createdAt": "2026-09-02T14:56:35.518Z",
-    "updatedAt": "2026-09-02T14:56:35.518Z"
+    "time": "10:00",
+    "status": "CANCELLED",
+    "createdAt": "2026-09-05T11:01:57.257Z",
+    "updatedAt": "2026-09-05T11:10:51.364Z",
+    "cancelledAt": "2026-09-05T11:10:51.361Z"
   }
 ]

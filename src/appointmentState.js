@@ -338,6 +338,7 @@ const cancelPatterns = [
      /^cancel$/,
     /^cancel it$/,
     /^cancel this$/,
+    /^no need$/,
     /^cancel appointment$/,
     /^cancel my appointment$/,
     /^i want to cancel$/,
@@ -750,13 +751,41 @@ function extractAppointmentId(message) {
         .replace(/\bDASH\b/g, "-")
         .replace(/\bHYPHEN\b/g, "-")
         .replace(/\bSPACE\b/g, " ")
+        .replace(/\bZERO\b/g, "0")
+        .replace(/\bOH\b/g, "0")
+        .replace(/\bONE\b/g, "1")
+        .replace(/\bTWO\b/g, "2")
+        .replace(/\bTHREE\b/g, "3")
+        .replace(/\bFOUR\b/g, "4")
+        .replace(/\bFIVE\b/g, "5")
+        .replace(/\bSIX\b/g, "6")
+        .replace(/\bSEVEN\b/g, "7")
+        .replace(/\bEIGHT\b/g, "8")
+        .replace(/\bNINE\b/g, "9")
         .replace(/[.,]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 
 
     // ----------------------------------------
-    // STANDARD FORMAT
+    // SHORT CUSTOMER FORMAT
+    // NC01 / NC 01 / N C 01
+    // N C zero one / N C oh one
+    // ----------------------------------------
+
+    const shortMatch =
+        text.match(/\bN?\s*C\s*(\d{1,4})\b/);
+
+    if (shortMatch) {
+
+        return `NC${String(
+            Number(shortMatch[1])
+        ).padStart(2, "0")}`;
+    }
+
+
+    // ----------------------------------------
+    // LEGACY FORMAT
     // NC-1788278322595-645
     // ----------------------------------------
 
@@ -771,7 +800,7 @@ function extractAppointmentId(message) {
 
 
     // ----------------------------------------
-    // VOICE FORMAT
+    // LEGACY VOICE FORMAT
     // NC 1788278322595 645
     // ----------------------------------------
 
@@ -782,19 +811,12 @@ function extractAppointmentId(message) {
 
     if (voiceMatch) {
 
-        const mainNumber =
-            voiceMatch[1];
-
-        const suffix =
-            voiceMatch[2];
-
-        return `NC-${mainNumber}-${suffix}`;
+        return `NC-${voiceMatch[1]}-${voiceMatch[2]}`;
     }
 
 
     // ----------------------------------------
-    // VOICE FORMAT WITH DASH
-    // NC DASH 1788278322595 - 645
+    // LEGACY VOICE FORMAT WITH DASH
     // ----------------------------------------
 
     const dashMatch =
@@ -804,13 +826,7 @@ function extractAppointmentId(message) {
 
     if (dashMatch) {
 
-        const mainNumber =
-            dashMatch[1];
-
-        const suffix =
-            dashMatch[2];
-
-        return `NC-${mainNumber}-${suffix}`;
+        return `NC-${dashMatch[1]}-${dashMatch[2]}`;
     }
 
 
@@ -894,6 +910,86 @@ export async function processAppointmentMessage(
     // cancellation, or rescheduling workflow
     // without cancelling an actual appointment.
     //
+
+
+
+    // ====================================
+// RESCHEDULE ABANDONMENT
+// ====================================
+//
+// IMPORTANT:
+// This must run BEFORE the global CANCEL flow.
+//
+// "no need" is also detected as a general
+// cancellation request. But when the user is
+// confirming a reschedule, "no need" should
+// simply abandon the reschedule.
+//
+// The original appointment remains unchanged.
+// ====================================
+
+if (
+    state.state === STATES.RESCHEDULE_CONFIRM
+) {
+
+    const abandonReschedulePatterns = [
+        /^no need$/,
+        /^no need for now$/,
+        /^no need right now$/,
+        /^no need thanks$/,
+        /^no need thank you$/,
+        /^not now$/,
+        /^not for now$/,
+        /^never mind$/,
+        /^nevermind$/,
+        /^forget it$/,
+        /^forget about it$/,
+        /^leave it$/,
+        /^leave it for now$/,
+        /^maybe later$/,
+        /^later$/,
+        /^i don't need it$/,
+        /^i do not need it$/,
+        /^i don't want to change it$/,
+        /^i do not want to change it$/,
+        /^don't change it$/,
+        /^do not change it$/
+    ];
+
+    const normalizedMessage =
+        String(message)
+            .toLowerCase()
+            .trim()
+            .replace(/\s+/g, " ");
+
+    if (
+        abandonReschedulePatterns.some(
+            pattern =>
+                pattern.test(
+                    normalizedMessage
+                )
+        )
+    ) {
+
+        // Clear only the pending
+        // reschedule date/time.
+        //
+        // DO NOT cancel the original
+        // appointment.
+
+        state.date = null;
+        state.time = null;
+
+        state.state = STATES.IDLE;
+
+        return {
+            state,
+
+            response:
+                "No problem. The reschedule has been cancelled. Your original appointment remains unchanged. How else can I help you?"
+        };
+    }
+}
 
     if (
         intent === "CANCEL_FLOW"
@@ -1958,7 +2054,7 @@ if (
                 state,
 
                 response:
-                    "Please provide your appointment confirmation number, for example NC-123456."
+                    "Please provide your appointment confirmation number, for example NC01."
 
             };
 

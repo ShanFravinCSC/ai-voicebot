@@ -23,7 +23,8 @@ import {
     createAppointment,
     findAppointmentByConfirmationNumber,
     updateAppointment,
-    findAppointmentsByDate
+    findAppointmentsByDate,
+    getAllAppointments
 } from "./appointmentRepository.js";
 
 
@@ -763,6 +764,7 @@ export function formatDateForSpeech(
 ///// Voice Speech/////
 
 export function formatConfirmationForSpeech(confirmationNumber) {
+
     if (!confirmationNumber) {
         return "";
     }
@@ -771,13 +773,42 @@ export function formatConfirmationForSpeech(confirmationNumber) {
         .trim()
         .toUpperCase();
 
-    const match = value.match(/^NC-(\d+)-(\d+)$/);
+    const shortMatch =
+        value.match(/^NC(\d{1,4})$/);
 
-    if (!match) {
+    if (shortMatch) {
+
+        const digits = shortMatch[1]
+            .padStart(2, "0")
+            .split("")
+            .map(
+                digit => ({
+                    "0": "zero",
+                    "1": "one",
+                    "2": "two",
+                    "3": "three",
+                    "4": "four",
+                    "5": "five",
+                    "6": "six",
+                    "7": "seven",
+                    "8": "eight",
+                    "9": "nine"
+                })[digit]
+            )
+            .join(" ");
+
+        return `N C ${digits}`;
+    }
+
+    // Backward compatibility for old confirmation numbers.
+    const legacyMatch =
+        value.match(/^NC-(\d+)-(\d+)$/);
+
+    if (!legacyMatch) {
         return value;
     }
 
-    const [, mainNumber, suffix] = match;
+    const [, mainNumber, suffix] = legacyMatch;
 
     const spokenMain = mainNumber
         .split("")
@@ -1142,6 +1173,57 @@ function generateAppointmentId() {
 
 
 // ========================================
+// GENERATE CUSTOMER CONFIRMATION NUMBER
+// ========================================
+//
+// Short, voice-friendly confirmation number.
+// Example: NC01, NC02, NC03
+//
+// The internal appointment id remains separate
+// and continues to use the long unique format.
+// ========================================
+
+async function generateConfirmationNumber() {
+
+    const appointments =
+        await getAllAppointments();
+
+    const usedNumbers =
+        appointments
+            .map(
+                appointment => {
+                    const match =
+                        String(
+                            appointment.confirmationNumber ||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase()
+                            .match(/^NC(\d+)$/);
+
+                    return match
+                        ? Number(match[1])
+                        : null;
+                }
+            )
+            .filter(
+                number =>
+                    Number.isInteger(number)
+            );
+
+    let nextNumber = 1;
+
+    while (
+        usedNumbers.includes(nextNumber)
+    ) {
+        nextNumber++;
+    }
+
+    return `NC${String(nextNumber).padStart(2, "0")}`;
+}
+
+
+// ========================================
 // NORMALIZE CONFIRMATION NUMBER
 // ========================================
 
@@ -1203,7 +1285,7 @@ export async function bookAppointment({
             generateAppointmentId(),
 
         confirmationNumber:
-            generateAppointmentId(),
+            await generateConfirmationNumber(),
 
         customerName,
 
