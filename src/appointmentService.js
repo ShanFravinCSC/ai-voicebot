@@ -28,6 +28,11 @@ import {
 } from "./appointmentRepository.js";
 
 
+import {
+    getDoctorById
+} from "./doctorService.js";
+
+
 // ========================================
 // CONFIGURATION
 // ========================================
@@ -821,6 +826,111 @@ export function formatConfirmationForSpeech(confirmationNumber) {
     return `N C. ${spokenMain}. ${spokenSuffix}`;
 }
 
+// ========================================
+// DOCTOR SCHEDULE HELPERS
+// ========================================
+
+function getDoctorSchedule(
+    doctorId
+) {
+    if (!doctorId) {
+        return {
+            workingDays: WORKING_DAYS,
+            start: BUSINESS_HOURS.start,
+            end: BUSINESS_HOURS.end
+        };
+    }
+
+    const doctor =
+        getDoctorById(
+            doctorId
+        );
+
+    if (!doctor) {
+        return null;
+    }
+
+    return {
+        workingDays:
+            doctor.workingDays ||
+            WORKING_DAYS,
+
+        start:
+            doctor.workingHours?.start ??
+            BUSINESS_HOURS.start,
+
+        end:
+            doctor.workingHours?.end ??
+            BUSINESS_HOURS.end
+    };
+}
+
+
+// ========================================
+// DOCTOR WORKING DAY
+// ========================================
+
+function isDoctorWorkingDay(
+    doctorId,
+    dateString
+) {
+    const schedule =
+        getDoctorSchedule(
+            doctorId
+        );
+
+    if (!schedule) {
+        return false;
+    }
+
+    const date =
+        new Date(
+            `${dateString}T00:00:00`
+        );
+
+    const day =
+        date.getDay();
+
+    return schedule.workingDays.includes(
+        day
+    );
+}
+
+
+// ========================================
+// DOCTOR WORKING HOURS
+// ========================================
+
+function isWithinDoctorWorkingHours(
+    doctorId,
+    time
+) {
+    const schedule =
+        getDoctorSchedule(
+            doctorId
+        );
+
+    if (!schedule) {
+        return false;
+    }
+
+    const minutes =
+        timeToMinutes(
+            time
+        );
+
+    const start =
+        schedule.start * 60;
+
+    const end =
+        schedule.end * 60;
+
+    return (
+        minutes >= start &&
+        minutes < end
+    );
+}
+
 
 // ========================================
 // BUSINESS HOURS
@@ -836,10 +946,12 @@ function isWithinBusinessHours(
         );
 
     const start =
-        BUSINESS_HOURS.start * 60;
+        BUSINESS_HOURS.start *
+        60;
 
     const end =
-        BUSINESS_HOURS.end * 60;
+        BUSINESS_HOURS.end *
+        60;
 
     // Appointment must finish
     // before closing time.
@@ -860,98 +972,149 @@ function isWithinBusinessHours(
 
 export async function checkAvailability(
     date,
-    time
+    time,
+    doctorId = null
 ) {
 
     const normalizedDate =
-        normalizeDate(date);
+        normalizeDate(
+            date
+        );
 
     const normalizedTime =
-        normalizeTime(time);
+        normalizeTime(
+            time
+        );
 
 
-    // DATE
-    if (!normalizedDate) {
+    // -------------------------------
+    // BASIC VALIDATION
+    // -------------------------------
 
+    if (
+        !normalizedDate ||
+        !normalizedTime
+    ) {
         return {
             available: false,
             reason:
-                "Invalid appointment date."
+                "Invalid appointment date or time."
         };
     }
 
 
+    // -------------------------------
+    // DOCTOR VALIDATION
+    // -------------------------------
+
+    let doctor = null;
+
+    if (doctorId) {
+
+        doctor =
+            getDoctorById(
+                doctorId
+            );
+
+        if (!doctor) {
+
+            return {
+                available: false,
+                date:
+                    normalizedDate,
+                time:
+                    normalizedTime,
+                reason:
+                    "The selected doctor could not be found."
+            };
+        }
+    }
+
+
+    // -------------------------------
+    // DATE VALIDATION
+    // -------------------------------
+
+    const dateValidation =
+        validateAppointmentDate(
+            normalizedDate
+        );
+
     if (
-        !isValidDate(
+        !dateValidation.valid
+    ) {
+        return {
+            available: false,
+            date:
+                normalizedDate,
+            time:
+                normalizedTime,
+            reason:
+                dateValidation.reason
+        };
+    }
+
+
+    // -------------------------------
+    // DOCTOR WORKING DAY
+    // -------------------------------
+
+    if (
+        doctorId &&
+        !isDoctorWorkingDay(
+            doctorId,
             normalizedDate
         )
     ) {
 
         return {
             available: false,
+            date:
+                normalizedDate,
+            time:
+                normalizedTime,
             reason:
-                "Invalid appointment date."
+                `${doctor.name} is not available on that day.`
         };
     }
 
 
-    // PAST
+    // -------------------------------
+    // WORKING HOURS
+    // -------------------------------
+
+    const withinWorkingHours =
+        doctorId
+            ? isWithinDoctorWorkingHours(
+                  doctorId,
+                  normalizedTime
+              )
+            : isWithinBusinessHours(
+                  normalizedTime
+              );
+
     if (
-        isPastDate(
-            normalizedDate
-        )
+        !withinWorkingHours
     ) {
 
         return {
             available: false,
+            date:
+                normalizedDate,
+            time:
+                normalizedTime,
             reason:
-                "Appointments cannot be booked for a past date."
+                doctor
+                    ? `${doctor.name} is available between ${doctor.workingHours?.start ?? BUSINESS_HOURS.start} AM and ${doctor.workingHours?.end ?? BUSINESS_HOURS.end} PM.`
+                    : "Appointments are available between 9 AM and 5 PM."
         };
     }
 
 
-    // WEEKEND
-    if (
-        isWeekend(
-            normalizedDate
-        )
-    ) {
+    // -------------------------------
+    // CHECK EXISTING APPOINTMENTS
+    // -------------------------------
 
-        return {
-            available: false,
-            reason:
-                "Appointments are available Monday to Friday."
-        };
-    }
-
-
-    // TIME
-    if (!normalizedTime) {
-
-        return {
-            available: false,
-            reason:
-                "Invalid appointment time."
-        };
-    }
-
-
-    // BUSINESS HOURS
-    if (
-        !isWithinBusinessHours(
-            normalizedTime
-        )
-    ) {
-
-        return {
-            available: false,
-            reason:
-                "Appointments are available between 9 AM and 5 PM."
-        };
-    }
-
-
-    // DATABASE
     const appointments =
         await findAppointmentsByDate(
             normalizedDate
@@ -960,11 +1123,33 @@ export async function checkAvailability(
 
     const matchingAppointments =
         appointments.filter(
-            appointment =>
-                appointment.time ===
-                    normalizedTime &&
-                appointment.status ===
+            appointment => {
+
+                if (
+                    appointment.status !==
                     "CONFIRMED"
+                ) {
+                    return false;
+                }
+
+                // If doctorId is supplied,
+                // only appointments for
+                // that doctor are conflicts.
+                if (
+                    doctorId
+                ) {
+                    return (
+                        appointment.doctorId ===
+                        doctorId
+                    );
+                }
+
+                // Backward compatibility:
+                // old appointments without
+                // doctorId still use the
+                // original global slot logic.
+                return true;
+            }
         );
 
 
@@ -980,7 +1165,9 @@ export async function checkAvailability(
             time:
                 normalizedTime,
             reason:
-                "That time slot is already booked."
+                doctor
+                    ? `${doctor.name} already has an appointment at that time.`
+                    : "That time slot is already booked."
         };
     }
 
@@ -990,7 +1177,14 @@ export async function checkAvailability(
         date:
             normalizedDate,
         time:
-            normalizedTime
+            normalizedTime,
+        doctorId:
+            doctor?.id ||
+            doctorId ||
+            null,
+        doctorName:
+            doctor?.name ||
+            null
     };
 }
 
@@ -1002,7 +1196,8 @@ export async function checkAvailability(
 export async function getAlternativeSlots(
     date,
     requestedTime,
-    limit = 3
+    limit = 3,
+    doctorId = null
 ) {
 
     const normalizedDate =
@@ -1048,18 +1243,35 @@ export async function getAlternativeSlots(
 
 
     const bookedTimes =
-        new Set(
-            appointments
-                .filter(
-                    appointment =>
-                        appointment.status ===
+    new Set(
+        appointments
+            .filter(
+                appointment => {
+
+                    if (
+                        appointment.status !==
                         "CONFIRMED"
-                )
-                .map(
-                    appointment =>
-                        appointment.time
-                )
-        );
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        doctorId
+                    ) {
+                        return (
+                            appointment.doctorId ===
+                            doctorId
+                        );
+                    }
+
+                    return true;
+                }
+            )
+            .map(
+                appointment =>
+                    appointment.time
+            )
+    );
 
 
     const requestedMinutes =
@@ -1094,44 +1306,45 @@ export async function getAlternativeSlots(
         }
 
 
-        const candidateMinutes =
-            requestedMinutes +
-            offset;
-
-
         const candidateTime =
-            minutesToTime(
-                candidateMinutes
-            );
+                minutesToTime(
+                    candidateMinutes
+                );
 
 
-        if (
-            !isWithinBusinessHours(
-                candidateTime
-            )
-        ) {
-            continue;
-        }
+            const withinWorkingHours =
+                doctorId
+                    ? isWithinDoctorWorkingHours(
+                        doctorId,
+                        candidateTime
+                    )
+                    : isWithinBusinessHours(
+                        candidateTime
+                    );
 
 
-        if (
-            bookedTimes.has(
-                candidateTime
-            )
-        ) {
-            continue;
-        }
+            if (!withinWorkingHours) {
+                continue;
+            }
+
+                    if (
+                        bookedTimes.has(
+                            candidateTime
+                        )
+                    ) {
+                        continue;
+                    }
 
 
-        if (
-            slots.some(
-                slot =>
-                    slot.time ===
-                    candidateTime
-            )
-        ) {
-            continue;
-        }
+                    if (
+                        slots.some(
+                            slot =>
+                                slot.time ===
+                                candidateTime
+                        )
+                    ) {
+                        continue;
+                    }
 
 
         slots.push({
@@ -1253,17 +1466,61 @@ function normalizeConfirmationNumber(
 // ========================================
 
 export async function bookAppointment({
+
+    doctorId = null,
+
+    doctorName = null,
+
     date,
+
     time,
-    customerName = "Guest",
-    customerPhone = null,
-    reason = null
+
+    customerName =
+        "Guest",
+
+    customerPhone =
+        null,
+
+    reason =
+        null
+
 }) {
+
+    // -------------------------------
+    // VALIDATE DOCTOR
+    // -------------------------------
+
+    let doctor = null;
+
+    if (
+        doctorId
+    ) {
+
+        doctor =
+            getDoctorById(
+                doctorId
+            );
+
+        if (!doctor) {
+
+            return {
+                success: false,
+                error:
+                    "The selected doctor could not be found."
+            };
+        }
+    }
+
+
+    // -------------------------------
+    // CHECK AVAILABILITY
+    // -------------------------------
 
     const availability =
         await checkAvailability(
             date,
-            time
+            time,
+            doctorId
         );
 
 
@@ -1279,13 +1536,31 @@ export async function bookAppointment({
     }
 
 
+    // -------------------------------
+    // CREATE APPOINTMENT
+    // -------------------------------
+
     const appointment = {
 
         id:
             generateAppointmentId(),
 
         confirmationNumber:
-            await generateConfirmationNumber(),
+            generateAppointmentId(),
+
+        doctorId:
+            doctor?.id ||
+            doctorId ||
+            null,
+
+        doctorName:
+            doctor?.name ||
+            doctorName ||
+            null,
+
+        doctorSpecialty:
+            doctor?.specialty ||
+            null,
 
         customerName,
 
@@ -1311,6 +1586,10 @@ export async function bookAppointment({
     };
 
 
+    // -------------------------------
+    // SAVE
+    // -------------------------------
+
     const saved =
         await createAppointment(
             appointment
@@ -1318,9 +1597,12 @@ export async function bookAppointment({
 
 
     return {
+
         success: true,
+
         appointment:
             saved
+
     };
 }
 
@@ -1581,13 +1863,45 @@ export async function rescheduleAppointment(
     // when checking the new slot.
     const conflict =
         appointments.some(
-            item =>
-                item.id !==
-                    appointment.id &&
-                item.status ===
-                    "CONFIRMED" &&
-                item.time ===
+            item => {
+
+                if (
+                    item.id ===
+                    appointment.id
+                ) {
+                    return false;
+                }
+
+                if (
+                    item.status !==
+                    "CONFIRMED"
+                ) {
+                    return false;
+                }
+
+                if (
+                    item.time !==
                     normalizedTime
+                ) {
+                    return false;
+                }
+
+                // If the original appointment
+                // has a doctor, only appointments
+                // for that doctor are conflicts.
+                if (
+                    appointment.doctorId
+                ) {
+                    return (
+                        item.doctorId ===
+                        appointment.doctorId
+                    );
+                }
+
+                // Backward compatibility
+                // for old appointments.
+                return true;
+            }
         );
 
 

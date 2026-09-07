@@ -34,6 +34,12 @@ import {
 
 import { transferToAgent } from "./transferService.js";
 
+import {
+  getAllDoctors,
+  getDoctorById,
+  findDoctorByName
+} from "./doctorService.js";
+
 // ========================================
 // STATES
 // ========================================
@@ -42,6 +48,9 @@ export const STATES = {
 
     IDLE:
         "IDLE",
+
+    COLLECTING_DOCTOR: 
+        "COLLECTING_DOCTOR",
 
     COLLECTING_NAME:
         "COLLECTING_NAME",
@@ -109,6 +118,12 @@ export function createInitialState() {
             null,
 
         reason:
+            null,
+
+        doctorId: 
+            null,
+        
+        doctorName: 
             null,
 
         date:
@@ -852,6 +867,12 @@ function resetBookingData(state) {
     state.reason =
         null;
 
+    state.doctorId = 
+        null;
+
+    state.doctorName = 
+        null;
+
     state.date =
         null;
 
@@ -1131,6 +1152,9 @@ if (
     if (
         intent === "NO" &&
         (
+            state.state ===    
+                STATES.COLLECTING_DOCTOR ||
+
             state.state ===
                 STATES.COLLECTING_NAME ||
 
@@ -1184,6 +1208,7 @@ if (
         // --------------------------------
 
         const bookingInProgress =
+            state.state === STATES.COLLECTING_DOCTOR ||
             state.state === STATES.COLLECTING_NAME ||
             state.state === STATES.COLLECTING_PHONE ||
             state.state === STATES.COLLECTING_REASON ||
@@ -1272,20 +1297,190 @@ if (
 
     if (
         state.state ===
-            STATES.IDLE &&
+        STATES.IDLE &&
 
         intent ===
-            "BOOK"
+        "BOOK"
     ) {
 
         resetBookingData(
             state
         );
 
-
         state.intent =
             "BOOK";
 
+        state.state =
+            STATES.COLLECTING_DOCTOR;
+
+        const doctors =
+            getAllDoctors();
+
+        const doctorList =
+            doctors
+                .map(
+                    (doctor, index) =>
+                        `${index + 1}. ${doctor.name} - ${doctor.specialty}`
+                )
+                .join(", ");
+
+        return {
+
+            state,
+
+            response:
+                `Sure. Which doctor would you like to book an appointment with? ${doctorList}`
+
+        };
+
+    }
+
+
+    // ====================================
+    // COLLECT DOCTOR
+    // ====================================
+
+    if (
+        state.state ===
+        STATES.COLLECTING_DOCTOR
+    ) {
+
+        const normalizedMessage =
+            normalizeText(message);
+
+        const doctors =
+            getAllDoctors();
+
+        let selectedDoctor =
+            null;
+
+        // --------------------------------
+        // NUMBER SELECTION
+        // Example: "1", "2", "3"
+        // --------------------------------
+
+        const numberMatch =
+            normalizedMessage.match(
+                /^([1-5])$/
+            );
+
+        if (numberMatch) {
+
+            const index =
+                Number(numberMatch[1]) - 1;
+
+            selectedDoctor =
+                doctors[index] || null;
+        }
+
+
+        // --------------------------------
+        // DOCTOR ID
+        // Example: D001
+        // --------------------------------
+
+        if (!selectedDoctor) {
+
+            selectedDoctor =
+                doctors.find(
+                    doctor =>
+                        doctor.id
+                            .toLowerCase() ===
+                        normalizedMessage
+                ) || null;
+        }
+
+
+        // --------------------------------
+        // DOCTOR NAME
+        // --------------------------------
+
+        if (!selectedDoctor) {
+
+            selectedDoctor =
+                doctors.find(
+                    doctor => {
+
+                        const doctorName =
+                            doctor.name.toLowerCase();
+
+                        return (
+                            normalizedMessage ===
+                                doctorName ||
+
+                            normalizedMessage.includes(
+                                doctorName
+                            ) ||
+
+                            doctorName.includes(
+                                normalizedMessage
+                            )
+                        );
+
+                    }
+                ) || null;
+        }
+
+
+        // --------------------------------
+        // SPECIALTY
+        // Example:
+        // "cardiology"
+        // "dermatology"
+        // --------------------------------
+
+        if (!selectedDoctor) {
+
+            selectedDoctor =
+                doctors.find(
+                    doctor => {
+
+                        const specialty =
+                            doctor.specialty
+                                .toLowerCase();
+
+                        return normalizedMessage
+                            .includes(
+                                specialty
+                            );
+
+                    }
+                ) || null;
+        }
+
+
+        // --------------------------------
+        // DOCTOR NOT FOUND
+        // --------------------------------
+
+        if (!selectedDoctor) {
+
+            return {
+
+                state,
+
+                response:
+                    "I couldn't identify the doctor. Please choose a doctor by number or tell me the doctor's name."
+
+            };
+
+        }
+
+
+        // --------------------------------
+        // SAVE DOCTOR
+        // --------------------------------
+
+        state.doctorId =
+            selectedDoctor.id;
+
+        state.doctorName =
+            selectedDoctor.name;
+
+
+        // --------------------------------
+        // MOVE TO NAME
+        // --------------------------------
 
         state.state =
             STATES.COLLECTING_NAME;
@@ -1296,7 +1491,7 @@ if (
             state,
 
             response:
-                "Sure. May I have your name?"
+                `${selectedDoctor.name} is selected. May I have your name?`
 
         };
 
@@ -1888,8 +2083,14 @@ if (
             // CREATE BOOKING
             // --------------------------------
 
-            const booking =
+            const bookingResult =
                 await bookAppointment({
+
+                    doctorId:
+                        state.doctorId,
+
+                    doctorName:
+                        state.doctorName,
 
                     date:
                         state.date,
@@ -1909,24 +2110,23 @@ if (
                 });
 
 
-            // --------------------------------
+            /// --------------------------------
             // BOOKING FAILED
             // --------------------------------
 
             if (
-                !booking.success
+                !bookingResult.success
             ) {
 
                 state.state =
                     STATES.COLLECTING_TIME;
-
 
                 return {
 
                     state,
 
                     response:
-                        `I couldn't complete the appointment. ${booking.error || "Please choose another time."}`
+                        `I couldn't complete the appointment. ${bookingResult.error || "Please choose another time."}`
 
                 };
 
@@ -1940,22 +2140,18 @@ if (
             state.confirmed =
                 true;
 
-
             state.state =
                 STATES.BOOKED;
 
-
             state.appointmentId =
-                booking.appointment.confirmationNumber ||
-                booking.appointment.id;
-
+                bookingResult.appointment.confirmationNumber ||
+                bookingResult.appointment.id;
 
             state.date =
-                booking.appointment.date;
-
+                bookingResult.appointment.date;
 
             state.time =
-                booking.appointment.time;
+                bookingResult.appointment.time;
 
 
             return {
@@ -1982,7 +2178,7 @@ if (
     }
 
 
-    // ====================================
+   // ====================================
     // BOOKED
     // ====================================
 
@@ -1999,21 +2195,29 @@ if (
                 state
             );
 
-
             state.intent =
                 "BOOK";
 
-
             state.state =
-                STATES.COLLECTING_NAME;
+                STATES.COLLECTING_DOCTOR;
 
+            const doctors =
+                getAllDoctors();
+
+            const doctorList =
+                doctors
+                    .map(
+                        (doctor, index) =>
+                            `${index + 1}. ${doctor.name} - ${doctor.specialty}`
+                    )
+                    .join(", ");
 
             return {
 
                 state,
 
                 response:
-                    "Sure. May I have your name?"
+                    `Sure. Which doctor would you like to book an appointment with? ${doctorList}`
 
             };
 
@@ -2030,7 +2234,6 @@ if (
         };
 
     }
-
 
     // ====================================
     // CANCELLING
@@ -2428,11 +2631,11 @@ if (
         // IMPORTANT:
         // Await service call.
 
-        const availability =
-            await checkAvailability(
-                state.date,
-                time
-            );
+        checkAvailability(
+            state.date,
+            state.time,
+            state.doctorId
+        );
 
 
         // --------------------------------
