@@ -45,6 +45,168 @@ let isListening = false;
 
 let recognitionStarted = false;
 
+// ========================================
+// NOVACARE SPEECH LANGUAGE CONFIGURATION
+// ========================================
+//
+// Recognition and text-to-speech use the
+// language selected by the user.
+//
+// The initial language remains English because
+// the language-selection screen accepts:
+//
+// - 1
+// - number one
+// - first
+// - Tamil
+// - Sinhala
+// etc.
+//
+// After selection, voice recognition switches
+// to the selected language.
+//
+// ========================================
+
+const SPEECH_LANGUAGE_MAP = {
+
+    en: {
+        recognition: "en-US",
+        speech: "en-US"
+    },
+
+    si: {
+        recognition: "si-LK",
+        speech: "si-LK"
+    },
+
+    ta: {
+        recognition: "ta-IN",
+        speech: "ta-IN"
+    },
+
+    fr: {
+        recognition: "fr-FR",
+        speech: "fr-FR"
+    },
+
+    de: {
+        recognition: "de-DE",
+        speech: "de-DE"
+    },
+
+    zh: {
+        recognition: "zh-CN",
+        speech: "zh-CN"
+    },
+
+    vi: {
+        recognition: "vi-VN",
+        speech: "vi-VN"
+    },
+
+    el: {
+        recognition: "el-GR",
+        speech: "el-GR"
+    },
+
+    it: {
+        recognition: "it-IT",
+        speech: "it-IT"
+    },
+
+    es: {
+        recognition: "es-ES",
+        speech: "es-ES"
+    }
+
+};
+
+
+// ========================================
+// CURRENT SPEECH LANGUAGE
+// ========================================
+//
+// English is used until the user selects
+// a language.
+//
+
+let currentSpeechLanguage =
+    "en";
+
+
+// ========================================
+// GET SPEECH CONFIGURATION
+// ========================================
+
+function getSpeechLanguageConfig() {
+
+    return (
+        SPEECH_LANGUAGE_MAP[
+            currentSpeechLanguage
+        ] ||
+        SPEECH_LANGUAGE_MAP.en
+    );
+
+}
+
+
+// ========================================
+// UPDATE SPEECH LANGUAGE
+// ========================================
+
+function updateSpeechLanguage(
+    languageCode
+) {
+
+    if (
+        !languageCode ||
+        !SPEECH_LANGUAGE_MAP[
+            languageCode
+        ]
+    ) {
+
+        currentSpeechLanguage =
+            "en";
+
+    } else {
+
+        currentSpeechLanguage =
+            languageCode;
+
+    }
+
+
+    const config =
+        getSpeechLanguageConfig();
+
+
+    console.log(
+        "SPEECH LANGUAGE UPDATED:",
+        {
+            language:
+                currentSpeechLanguage,
+
+            recognition:
+                config.recognition,
+
+            speech:
+                config.speech
+        }
+    );
+
+
+    // Update recognition immediately
+    // if the recognition object already exists.
+
+    if (recognition) {
+
+        recognition.lang =
+            config.recognition;
+
+    }
+
+}
+
 
 // ========================================
 // VOICE TIMERS
@@ -160,7 +322,8 @@ function initializeSpeechRecognition() {
 
     recognition.interimResults = false;
 
-    recognition.lang = "en-US";
+    recognition.lang =
+        getSpeechLanguageConfig().recognition;
 
 
     // ------------------------------------
@@ -596,6 +759,7 @@ micButton.addEventListener(
 // START RECOGNITION
 // ========================================
 
+
 function startRecognition() {
 
     if (!recognition) {
@@ -619,6 +783,19 @@ function startRecognition() {
     // Clear previous timer
 
     clearSpeechTimeout();
+
+    // ------------------------------------
+    // Apply currently selected language
+    // ------------------------------------
+
+    recognition.lang =
+        getSpeechLanguageConfig().recognition;
+
+
+    console.log(
+        "VOICE RECOGNITION LANGUAGE:",
+        recognition.lang
+    );
 
 
     try {
@@ -1090,6 +1267,20 @@ async function sendMessage(
                 "APPOINTMENT STATE UPDATED:",
                 appointmentState
             );
+
+            // --------------------------------
+            // Update browser speech language
+            // --------------------------------
+
+            if (
+                appointmentState.language
+            ) {
+
+                updateSpeechLanguage(
+                    appointmentState.language
+                );
+
+            }
         }
 
 
@@ -1312,6 +1503,98 @@ function addMessage(
         conversation.scrollHeight;
 }
 
+// ========================================
+// FIND BEST BROWSER VOICE
+// ========================================
+
+function findBestVoice(
+    voices,
+    targetLanguage
+) {
+
+    if (
+        !voices ||
+        !voices.length ||
+        !targetLanguage
+    ) {
+
+        return null;
+
+    }
+
+
+    const normalizedTarget =
+        targetLanguage
+            .toLowerCase();
+
+
+    // ------------------------------------
+    // Exact language match
+    // ------------------------------------
+
+    let voice =
+        voices.find(
+            item =>
+                item.lang &&
+                item.lang.toLowerCase() ===
+                normalizedTarget
+        );
+
+
+    if (voice) {
+
+        return voice;
+
+    }
+
+
+    // ------------------------------------
+    // Language family match
+    //
+    // ta-IN -> ta
+    // si-LK -> si
+    // fr-FR -> fr
+    // ------------------------------------
+
+    const languageFamily =
+        normalizedTarget
+            .split("-")[0];
+
+
+    voice =
+        voices.find(
+            item => {
+
+                if (!item.lang) {
+                    return false;
+                }
+
+
+                const voiceLanguage =
+                    item.lang
+                        .toLowerCase()
+                        .split("-")[0];
+
+
+                return (
+                    voiceLanguage ===
+                    languageFamily
+                );
+
+            }
+        );
+
+
+    if (voice) {
+
+        return voice;
+
+    }
+
+
+    return null;
+
+}
 
 // ========================================
 // TEXT TO SPEECH
@@ -1326,6 +1609,7 @@ function speak(
         setReadyState();
 
         return;
+
     }
 
 
@@ -1336,14 +1620,28 @@ function speak(
     window.speechSynthesis.cancel();
 
 
+    // ------------------------------------
+    // Get selected language
+    // ------------------------------------
+
+    const languageConfig =
+        getSpeechLanguageConfig();
+
+
     const speech =
         new SpeechSynthesisUtterance(
             text
         );
 
 
+    // ------------------------------------
+    // IMPORTANT:
+    // Use selected language instead of
+    // hard-coded en-US.
+    // ------------------------------------
+
     speech.lang =
-        "en-US";
+        languageConfig.speech;
 
 
     speech.rate =
@@ -1359,6 +1657,53 @@ function speak(
 
 
     // ------------------------------------
+    // Find matching browser voice
+    // ------------------------------------
+
+    const voices =
+        window.speechSynthesis
+            .getVoices();
+
+
+    const selectedVoice =
+        findBestVoice(
+            voices,
+            languageConfig.speech
+        );
+
+
+    if (selectedVoice) {
+
+        speech.voice =
+            selectedVoice;
+
+
+        console.log(
+            "TTS VOICE SELECTED:",
+            {
+                name:
+                    selectedVoice.name,
+
+                lang:
+                    selectedVoice.lang
+            }
+        );
+
+    } else {
+
+        console.warn(
+            "TTS: No matching voice found for:",
+            languageConfig.speech
+        );
+
+        console.warn(
+            "TTS will use browser default voice with requested language."
+        );
+
+    }
+
+
+    // ------------------------------------
     // Speech started
     // ------------------------------------
 
@@ -1370,6 +1715,7 @@ function speak(
 
         instruction.textContent =
             "Nova is speaking...";
+
     };
 
 
@@ -1409,7 +1755,29 @@ function speak(
     window.speechSynthesis.speak(
         speech
     );
+
 }
+
+// ========================================
+// LOAD BROWSER VOICES
+// ========================================
+
+window.speechSynthesis.addEventListener(
+    "voiceschanged",
+    () => {
+
+        const voices =
+            window.speechSynthesis
+                .getVoices();
+
+
+        console.log(
+            "TTS VOICES AVAILABLE:",
+            voices.length
+        );
+
+    }
+);
 
 
 // ========================================
@@ -1486,6 +1854,18 @@ function resetConversation() {
 
 
     appointmentState = null;
+
+    currentSpeechLanguage =
+    "en";
+
+
+    // Reset recognition language
+    if (recognition) {
+
+        recognition.lang =
+            "en-US";
+
+    }
 
 
     isProcessing = false;

@@ -5,6 +5,11 @@ import {
     processAppointmentMessage
 } from "./appointmentState.js";
 
+import {
+    translateText,
+    translateToEnglish
+} from "./translationService.js";
+
 dotenv.config();
 
 
@@ -660,6 +665,46 @@ function getAIUnavailableResponse(
 
 
 // ========================================
+// TRANSLATE INBOUND MESSAGE
+// ========================================
+//
+// Only translates when a non-English language
+// has already been explicitly selected for this
+// call. Before that (e.g. during the language
+// picker turn itself), messages pass through
+// untouched.
+// ========================================
+
+async function translateInboundMessage(
+    message,
+    currentState
+) {
+
+    const sourceLanguage =
+        currentState?.language;
+
+    const languageSelected =
+        currentState?.languageSelected;
+
+
+    if (
+        !languageSelected ||
+        !sourceLanguage ||
+        sourceLanguage === "en"
+    ) {
+        return message;
+    }
+
+
+    return await translateToEnglish(
+        message,
+        sourceLanguage
+    );
+
+}
+
+
+// ========================================
 // MAIN AI FUNCTION
 // ========================================
 
@@ -826,7 +871,10 @@ export async function generateAIResponse(
         const appointmentResult =
             await processAppointmentMessage(
                 currentState,
-                cleanMessage
+                await translateInboundMessage(
+                    cleanMessage,
+                    currentState
+                )
             );
 
 
@@ -895,13 +943,19 @@ export async function generateAIResponse(
             return {
 
                 response:
-                    appointmentResponse.trim(),
+                    await translateText(
+                        appointmentResponse.trim(),
+                        newState?.language
+                    ),
 
                 state:
                     newState,
 
                 transfer:
-                    appointmentResult?.transfer || null
+                    appointmentResult?.transfer || null,
+
+                ended:
+                    appointmentResult?.ended || false
 
             };
 

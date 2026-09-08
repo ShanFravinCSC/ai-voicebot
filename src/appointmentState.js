@@ -40,6 +40,11 @@ import {
   findDoctorByName
 } from "./doctorService.js";
 
+import {
+    detectLanguageSelection,
+    getNumberedLanguagePromptText
+} from "./languageService.js";
+
 // ========================================
 // STATES
 // ========================================
@@ -92,7 +97,10 @@ export const STATES = {
         "RESCHEDULE_CONFIRM",
 
     HUMAN_AGENT:
-        "HUMAN_AGENT"
+        "HUMAN_AGENT",
+
+    SELECTING_LANGUAGE:
+        "SELECTING_LANGUAGE"
 
 };
 
@@ -136,7 +144,19 @@ export function createInitialState() {
             false,
 
         appointmentId:
-            null
+            null,
+
+        invalidAttempts:
+            0,
+
+        language:
+            "en",
+
+        languageName:
+            "English",
+
+        languageSelected:
+            false
     };
 }
 
@@ -728,22 +748,70 @@ export function extractTime(message) {
 
 function extractPhone(message) {
 
-    const digits =
+    const validation =
+        validatePhoneNumber(
+            message
+        );
+
+    return validation.valid
+        ? validation.phone
+        : null;
+
+}
+
+
+// ========================================
+// VALIDATE PHONE NUMBER
+// ========================================
+//
+// Rules:
+// - No English letters allowed anywhere
+//   in the message.
+// - After stripping spaces/dashes/etc,
+//   must be EXACTLY 10 digits.
+// ========================================
+
+function validatePhoneNumber(message) {
+
+    const raw =
         String(message)
-            .replace(/\D/g, "");
+            .trim();
 
 
     if (
-        digits.length < 7 ||
-        digits.length > 15
+        /[a-zA-Z]/.test(raw)
     ) {
 
-        return null;
+        return {
+            valid: false,
+            reason:
+                "Phone numbers shouldn't contain letters. Please say or enter a 10 digit phone number."
+        };
 
     }
 
 
-    return digits;
+    const digits =
+        raw.replace(/\D/g, "");
+
+
+    if (
+        digits.length !== 10
+    ) {
+
+        return {
+            valid: false,
+            reason:
+                "Phone number should be exactly 10 digits. Please say or enter your 10 digit phone number."
+        };
+
+    }
+
+
+    return {
+        valid: true,
+        phone: digits
+    };
 
 }
 
@@ -885,6 +953,134 @@ function resetBookingData(state) {
     state.appointmentId =
         null;
 
+    state.invalidAttempts =
+        0;
+
+}
+
+
+// ========================================
+// INVALID ATTEMPT TRACKING
+// ========================================
+//
+// Any collection step (doctor, name, phone,
+// date, ...) that receives input it cannot
+// use calls handleInvalidAttempt() instead of
+// returning its "please try again" response
+// directly.
+//
+// After MAX_INVALID_ATTEMPTS failures in a row,
+// the conversation is ended and the caller must
+// start over.
+// ========================================
+
+const MAX_INVALID_ATTEMPTS = 3;
+
+function handleInvalidAttempt(
+    state,
+    retryResponse
+) {
+
+    state.invalidAttempts =
+        (state.invalidAttempts || 0) + 1;
+
+
+    if (
+        state.invalidAttempts >=
+        MAX_INVALID_ATTEMPTS
+    ) {
+
+        return {
+
+            state:
+                createInitialState(),
+
+            response:
+                "You've exceeded the maximum number of attempts. Ending this conversation — please try again.",
+
+            ended:
+                true
+
+        };
+
+    }
+
+
+    return {
+
+        state,
+
+        response:
+            retryResponse
+
+    };
+
+}
+
+
+function resetAttempts(state) {
+
+    state.invalidAttempts = 0;
+
+}
+
+
+// ========================================
+// DOCTOR AVAILABILITY FOR SPEECH
+// ========================================
+//
+// Turns a doctor's workingDays / workingHours
+// into a spoken sentence, e.g.:
+// "available Monday, Tuesday, Thursday and
+//  Friday, between 9 AM and 4 PM"
+// ========================================
+
+function formatDoctorAvailabilityForSpeech(
+    doctor
+) {
+
+    if (!doctor) {
+        return "";
+    }
+
+    const days =
+        doctor.workingDays || [];
+
+    let daysText = "";
+
+    if (days.length === 1) {
+
+        daysText = days[0];
+
+    } else if (days.length > 1) {
+
+        daysText =
+            days
+                .slice(0, -1)
+                .join(", ") +
+            " and " +
+            days[days.length - 1];
+
+    }
+
+    const start =
+        formatTimeForSpeech(
+            doctor.workingHours?.start
+        );
+
+    const end =
+        formatTimeForSpeech(
+            doctor.workingHours?.end
+        );
+
+    if (!daysText || !start || !end) {
+        return "";
+    }
+
+    return (
+        `available ${daysText}, between ${start} and ${end}`
+    );
+
 }
 
 
@@ -903,6 +1099,123 @@ export async function processAppointmentMessage(
             createInitialState())
 
     };
+
+
+    // ====================================
+    // LANGUAGE SELECTION GATE
+    // ====================================
+    //
+    // First-ever turn of a session: ask which
+    // language to continue in before doing
+    // anything else. Runs once per call —
+    // state.languageSelected then stays true
+    // even if resetBookingData() runs later.
+    // ====================================
+
+    if (
+        state.state === STATES.IDLE &&
+        !state.languageSelected
+    ) {
+
+        state.state =
+            STATES.SELECTING_LANGUAGE;
+
+        return {
+
+            state,
+
+            response:
+                `Hello, welcome to NovaCare hospital appointment service. We have the following languages, numbered 1 to 10. Please say or enter the number of the language you'd prefer: ${getNumberedLanguagePromptText()}.`
+
+        };
+
+    }
+
+
+    if (
+        state.state ===
+        STATES.SELECTING_LANGUAGE
+    ) {
+
+        const language =
+            detectLanguageSelection(message);
+
+
+        if (!language) {
+
+            return handleInvalidAttempt(
+                state,
+                `Sorry, I didn't catch that. Please say or enter the number of the language you'd prefer: ${getNumberedLanguagePromptText()}.`
+            );
+
+        }
+
+
+        resetAttempts(state);
+
+        state.language =
+            language.code;
+
+        state.languageName =
+            language.name;
+
+        state.languageSelected =
+            true;
+
+        state.state =
+            STATES.IDLE;
+
+
+        return {
+
+            state,
+
+            response:
+                `Great, we'll continue in ${language.name}. How can I help you today? For example, you can say "book an appointment".`
+
+        };
+
+    }
+
+
+    // ====================================
+    // MID-CONVERSATION LANGUAGE SWITCH
+    // ====================================
+    //
+    // Lets the caller say things like
+    // "switch to French" / "speak in Tamil"
+    // at any point without losing progress
+    // on an in-flight booking.
+    // ====================================
+
+    if (
+        /\b(switch|change|speak|talk|reply|respond)\b.*\b(language|tamil|sinhala|french|german|chinese|vietnamese|greek|italian|spanish|english)\b/i
+            .test(message)
+    ) {
+
+        const language =
+            detectLanguageSelection(message);
+
+        if (language) {
+
+            state.language =
+                language.code;
+
+            state.languageName =
+                language.name;
+
+            return {
+
+                state,
+
+                response:
+                    `Okay, switching to ${language.name}.`
+
+            };
+
+        }
+
+    }
 
 
     const intent =
@@ -1455,14 +1768,10 @@ if (
 
         if (!selectedDoctor) {
 
-            return {
-
+            return handleInvalidAttempt(
                 state,
-
-                response:
-                    "I couldn't identify the doctor. Please choose a doctor by number or tell me the doctor's name."
-
-            };
+                "I couldn't identify the doctor. Please choose a doctor by number or tell me the doctor's name."
+            );
 
         }
 
@@ -1482,8 +1791,21 @@ if (
         // MOVE TO NAME
         // --------------------------------
 
+        resetAttempts(state);
+
         state.state =
             STATES.COLLECTING_NAME;
+
+
+        const availabilityText =
+            formatDoctorAvailabilityForSpeech(
+                selectedDoctor
+            );
+
+        const availabilitySentence =
+            availabilityText
+                ? ` ${selectedDoctor.name} is ${availabilityText}.`
+                : "";
 
 
         return {
@@ -1491,7 +1813,7 @@ if (
             state,
 
             response:
-                `${selectedDoctor.name} is selected. May I have your name?`
+                `${selectedDoctor.name} is selected.${availabilitySentence} May I have your name?`
 
         };
 
@@ -1514,14 +1836,10 @@ if (
 
         if (!name) {
 
-            return {
-
+            return handleInvalidAttempt(
                 state,
-
-                response:
-                    "May I have your name?"
-
-            };
+                "May I have your name?"
+            );
 
         }
 
@@ -1548,6 +1866,24 @@ if (
 
         }
 
+
+        // --------------------------------
+        // NAME MUST NOT CONTAIN NUMBERS
+        // --------------------------------
+
+        if (
+            /\d/.test(name)
+        ) {
+
+            return handleInvalidAttempt(
+                state,
+                "Your name shouldn't contain numbers. Could you say your name again?"
+            );
+
+        }
+
+
+        resetAttempts(state);
 
         state.customerName =
             name;
@@ -1578,28 +1914,26 @@ if (
         STATES.COLLECTING_PHONE
     ) {
 
-        const phone =
-            extractPhone(
+        const phoneValidation =
+            validatePhoneNumber(
                 message
             );
 
 
-        if (!phone) {
+        if (!phoneValidation.valid) {
 
-            return {
-
+            return handleInvalidAttempt(
                 state,
-
-                response:
-                    "I couldn't understand that phone number. Please say or enter your phone number again."
-
-            };
+                phoneValidation.reason
+            );
 
         }
 
 
+        resetAttempts(state);
+
         state.customerPhone =
-            phone;
+            phoneValidation.phone;
 
 
         state.state =
@@ -1677,14 +2011,10 @@ if (
 
     if (!date) {
 
-        return {
-
+        return handleInvalidAttempt(
             state,
-
-            response:
-                "What date would you like the appointment?"
-
-        };
+            "What date would you like the appointment?"
+        );
 
     }
 
@@ -1699,17 +2029,15 @@ if (
         !validation.valid
     ) {
 
-        return {
-
+        return handleInvalidAttempt(
             state,
-
-            response:
-                `${validation.reason} What date would you like instead?`
-
-        };
+            `${validation.reason} What date would you like instead?`
+        );
 
     }
 
+
+    resetAttempts(state);
 
     state.date =
         validation.date;
@@ -1724,7 +2052,8 @@ if (
         const availability =
             await checkAvailability(
                 state.date,
-                time
+                time,
+                state.doctorId
             );
 
 
@@ -1740,7 +2069,8 @@ if (
                 await getAlternativeSlots(
                     state.date,
                     time,
-                    3
+                    3,
+                    state.doctorId
                 );
 
 
@@ -1861,7 +2191,8 @@ if (
         const availability =
             await checkAvailability(
                 state.date,
-                time
+                time,
+                state.doctorId
             );
 
 
@@ -1877,9 +2208,9 @@ if (
                 await getAlternativeSlots(
                     state.date,
                     time,
-                    3
+                    3,
+                    state.doctorId
                 );
-
 
             let response =
                 availability.reason ||
@@ -2007,7 +2338,8 @@ if (
             const availability =
                 await checkAvailability(
                     state.date,
-                    state.time
+                    state.time,
+                    state.doctorId
                 );
 
 
@@ -2023,7 +2355,8 @@ if (
                     await getAlternativeSlots(
                         state.date,
                         state.time,
-                        3
+                        3,
+                        state.doctorId
                     );
 
 
@@ -2628,14 +2961,12 @@ if (
         }
 
 
-        // IMPORTANT:
-        // Await service call.
-
-        checkAvailability(
-            state.date,
-            state.time,
-            state.doctorId
-        );
+        const availability =
+            await checkAvailability(
+                state.date,
+                time,
+                state.doctorId
+            );
 
 
         // --------------------------------
@@ -2650,7 +2981,8 @@ if (
                 await getAlternativeSlots(
                     state.date,
                     time,
-                    3
+                    3,
+                    state.doctorId
                 );
 
 

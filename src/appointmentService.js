@@ -888,11 +888,25 @@ function isDoctorWorkingDay(
             `${dateString}T00:00:00`
         );
 
-    const day =
-        date.getDay();
+    const dayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+    ];
 
-    return schedule.workingDays.includes(
-        day
+    const dayName =
+        dayNames[date.getDay()];
+
+    return schedule.workingDays.some(
+        workingDay =>
+            String(workingDay)
+                .trim()
+                .toLowerCase() ===
+            dayName.toLowerCase()
     );
 }
 
@@ -920,14 +934,22 @@ function isWithinDoctorWorkingHours(
         );
 
     const start =
-        schedule.start * 60;
+        typeof schedule.start === "number"
+            ? schedule.start * 60
+            : timeToMinutes(schedule.start);
 
     const end =
-        schedule.end * 60;
+        typeof schedule.end === "number"
+            ? schedule.end * 60
+            : timeToMinutes(schedule.end);
+
+    const appointmentEnd =
+        minutes +
+        APPOINTMENT_DURATION;
 
     return (
         minutes >= start &&
-        minutes < end
+        appointmentEnd <= end
     );
 }
 
@@ -1105,9 +1127,15 @@ export async function checkAvailability(
                 normalizedTime,
             reason:
                 doctor
-                    ? `${doctor.name} is available between ${doctor.workingHours?.start ?? BUSINESS_HOURS.start} AM and ${doctor.workingHours?.end ?? BUSINESS_HOURS.end} PM.`
+                    ? `${doctor.name} is available between ${formatTimeForSpeech(
+                        doctor.workingHours?.start ??
+                        `${String(BUSINESS_HOURS.start).padStart(2, "0")}:00`
+                    )} and ${formatTimeForSpeech(
+                        doctor.workingHours?.end ??
+                        `${String(BUSINESS_HOURS.end).padStart(2, "0")}:00`
+                    )}.`
                     : "Appointments are available between 9 AM and 5 PM."
-        };
+                    };
     }
 
 
@@ -1295,18 +1323,19 @@ export async function getAlternativeSlots(
     ];
 
 
-    for (
-        const offset of offsets
-    ) {
-
-        if (
-            slots.length >= limit
+   for (
+    const offset of offsets
         ) {
-            break;
-        }
+            if (
+                slots.length >= limit
+            ) {
+                break;
+            }
 
+            const candidateMinutes =
+                requestedMinutes + offset;
 
-        const candidateTime =
+            const candidateTime =
                 minutesToTime(
                     candidateMinutes
                 );
@@ -1546,7 +1575,7 @@ export async function bookAppointment({
             generateAppointmentId(),
 
         confirmationNumber:
-            generateAppointmentId(),
+            await generateConfirmationNumber(),
 
         doctorId:
             doctor?.id ||

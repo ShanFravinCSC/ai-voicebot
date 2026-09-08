@@ -219,7 +219,10 @@ app.post(
                     result.state,
 
                 transfer:
-                     result.transfer || null
+                     result.transfer || null,
+
+                ended:
+                     result.ended || false
 
             });
 
