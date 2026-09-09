@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "id": "NC-1788962524089-312",
+    "confirmationNumber": "NC01",
+    "doctorId": "D003",
+    "doctorName": "Dr. Anjali Kumar",
+    "doctorSpecialty": "Dermatology",
+    "customerName": "Shaan",
+    "customerPhone": "0123456789",
+    "reason": "general consult",
+    "date": "2026-09-11",
+    "time": "11:00",
+    "status": "CANCELLED",
+    "createdAt": "2026-09-09T14:02:04.090Z",
+    "updatedAt": "2026-09-09T14:08:26.964Z",
+    "rescheduledAt": "2026-09-09T14:06:48.884Z",
+    "cancelledAt": "2026-09-09T14:08:26.963Z"
+  }
+]

@@ -1519,47 +1519,56 @@ function findBestVoice(
     ) {
 
         return null;
-
     }
 
 
     const normalizedTarget =
-        targetLanguage
-            .toLowerCase();
+        String(targetLanguage)
+            .toLowerCase()
+            .trim();
 
 
-    // ------------------------------------
-    // Exact language match
-    // ------------------------------------
+    const languageFamily =
+        normalizedTarget
+            .split("-")[0];
+
+
+    console.log(
+        "TTS: Looking for voice:",
+        normalizedTarget
+    );
+
+
+    // ====================================
+    // 1. EXACT MATCH
+    // ====================================
 
     let voice =
         voices.find(
             item =>
                 item.lang &&
-                item.lang.toLowerCase() ===
+                item.lang
+                    .toLowerCase()
+                    .trim() ===
                 normalizedTarget
         );
 
 
     if (voice) {
 
-        return voice;
+        console.log(
+            "TTS: Exact voice found:",
+            voice.name,
+            voice.lang
+        );
 
+        return voice;
     }
 
 
-    // ------------------------------------
-    // Language family match
-    //
-    // ta-IN -> ta
-    // si-LK -> si
-    // fr-FR -> fr
-    // ------------------------------------
-
-    const languageFamily =
-        normalizedTarget
-            .split("-")[0];
-
+    // ====================================
+    // 2. LANGUAGE FAMILY MATCH
+    // ====================================
 
     voice =
         voices.find(
@@ -1573,6 +1582,7 @@ function findBestVoice(
                 const voiceLanguage =
                     item.lang
                         .toLowerCase()
+                        .trim()
                         .split("-")[0];
 
 
@@ -1580,20 +1590,74 @@ function findBestVoice(
                     voiceLanguage ===
                     languageFamily
                 );
-
             }
         );
 
 
     if (voice) {
 
-        return voice;
+        console.log(
+            "TTS: Language-family voice found:",
+            voice.name,
+            voice.lang
+        );
 
+        return voice;
+    }
+
+
+    // ====================================
+    // 3. GOOGLE VOICE PREFERENCE
+    // ====================================
+    //
+    // Chrome may expose several voices.
+    // Prefer Google voices when available.
+    //
+
+    voice =
+        voices.find(
+            item => {
+
+                if (!item.lang) {
+                    return false;
+                }
+
+
+                const voiceLanguage =
+                    item.lang
+                        .toLowerCase()
+                        .trim()
+                        .split("-")[0];
+
+
+                const voiceName =
+                    item.name
+                        ? item.name.toLowerCase()
+                        : "";
+
+
+                return (
+                    voiceLanguage ===
+                    languageFamily &&
+                    voiceName.includes("google")
+                );
+            }
+        );
+
+
+    if (voice) {
+
+        console.log(
+            "TTS: Google voice found:",
+            voice.name,
+            voice.lang
+        );
+
+        return voice;
     }
 
 
     return null;
-
 }
 
 // ========================================
@@ -1609,36 +1673,78 @@ function speak(
         setReadyState();
 
         return;
-
     }
 
 
-    // ------------------------------------
-    // Stop existing speech
-    // ------------------------------------
+    // ====================================
+    // STOP PREVIOUS SPEECH
+    // ====================================
 
     window.speechSynthesis.cancel();
 
 
-    // ------------------------------------
-    // Get selected language
-    // ------------------------------------
+    // ====================================
+    // CURRENT LANGUAGE
+    // ====================================
 
     const languageConfig =
         getSpeechLanguageConfig();
 
+
+    console.log(
+        "===================================="
+    );
+
+    console.log(
+        "NOVA TTS"
+    );
+
+    console.log(
+        "Current language:",
+        currentSpeechLanguage
+    );
+
+    console.log(
+        "Requested speech language:",
+        languageConfig.speech
+    );
+
+
+    // ====================================
+    // GET AVAILABLE VOICES
+    // ====================================
+
+    const voices =
+        window.speechSynthesis
+            .getVoices();
+
+
+    console.log(
+        "Available TTS voices:",
+        voices.length
+    );
+
+
+    // ====================================
+    // FIND MATCHING VOICE
+    // ====================================
+
+    const selectedVoice =
+        findBestVoice(
+            voices,
+            languageConfig.speech
+        );
+
+
+    // ====================================
+    // CREATE SPEECH
+    // ====================================
 
     const speech =
         new SpeechSynthesisUtterance(
             text
         );
 
-
-    // ------------------------------------
-    // IMPORTANT:
-    // Use selected language instead of
-    // hard-coded en-US.
-    // ------------------------------------
 
     speech.lang =
         languageConfig.speech;
@@ -1656,26 +1762,28 @@ function speak(
         1;
 
 
-    // ------------------------------------
-    // Find matching browser voice
-    // ------------------------------------
-
-    const voices =
-        window.speechSynthesis
-            .getVoices();
-
-
-    const selectedVoice =
-        findBestVoice(
-            voices,
-            languageConfig.speech
-        );
-
+    // ====================================
+    // APPLY MATCHING VOICE
+    // ====================================
 
     if (selectedVoice) {
 
         speech.voice =
             selectedVoice;
+
+
+        // Use the actual voice language.
+        //
+        // This is important because some
+        // browsers expose voices using:
+        //
+        // ta-IN
+        // ta
+        // Tamil
+        //
+
+        speech.lang =
+            selectedVoice.lang;
 
 
         console.log(
@@ -1685,29 +1793,70 @@ function speak(
                     selectedVoice.name,
 
                 lang:
-                    selectedVoice.lang
+                    selectedVoice.lang,
+
+                requested:
+                    languageConfig.speech
             }
         );
 
     } else {
 
-        console.warn(
-            "TTS: No matching voice found for:",
+        console.error(
+            "===================================="
+        );
+
+        console.error(
+            "NO MATCHING TTS VOICE FOUND"
+        );
+
+        console.error(
+            "Requested:",
             languageConfig.speech
         );
 
-        console.warn(
-            "TTS will use browser default voice with requested language."
+        console.error(
+            "Available voices:"
         );
 
+
+        voices.forEach(
+            voice => {
+
+                console.error(
+                    `${voice.name} | ${voice.lang}`
+                );
+
+            }
+        );
+
+
+        console.error(
+            "===================================="
+        );
+
+        // Keep the requested language.
+        //
+        // DO NOT intentionally fall back
+        // to English.
+        //
+
+        speech.lang =
+            languageConfig.speech;
     }
 
 
-    // ------------------------------------
-    // Speech started
-    // ------------------------------------
+    // ====================================
+    // SPEECH START
+    // ====================================
 
     speech.onstart = () => {
+
+        console.log(
+            "TTS STARTED:",
+            speech.lang
+        );
+
 
         statusText.textContent =
             "Speaking...";
@@ -1715,49 +1864,56 @@ function speak(
 
         instruction.textContent =
             "Nova is speaking...";
-
     };
 
 
-    // ------------------------------------
-    // Speech finished
-    // ------------------------------------
+    // ====================================
+    // SPEECH END
+    // ====================================
 
     speech.onend = () => {
 
-        setReadyState();
+        console.log(
+            "TTS FINISHED"
+        );
 
+
+        setReadyState();
     };
 
 
-    // ------------------------------------
-    // Speech error
-    // ------------------------------------
+    // ====================================
+    // SPEECH ERROR
+    // ====================================
 
     speech.onerror =
         event => {
 
             console.error(
                 "TEXT TO SPEECH ERROR:",
-                event
+                event.error
             );
 
 
             setReadyState();
-
         };
 
 
-    // ------------------------------------
-    // Speak
-    // ------------------------------------
+    // ====================================
+    // SPEAK
+    // ====================================
+
+    console.log(
+        "TTS: Speaking:",
+        text
+    );
+
 
     window.speechSynthesis.speak(
         speech
     );
 
 }
-
 // ========================================
 // LOAD BROWSER VOICES
 // ========================================
@@ -1772,8 +1928,28 @@ window.speechSynthesis.addEventListener(
 
 
         console.log(
-            "TTS VOICES AVAILABLE:",
+            "===================================="
+        );
+
+        console.log(
+            "TTS VOICES LOADED:",
             voices.length
+        );
+
+
+        voices.forEach(
+            voice => {
+
+                console.log(
+                    `VOICE: ${voice.name} | ${voice.lang}`
+                );
+
+            }
+        );
+
+
+        console.log(
+            "===================================="
         );
 
     }

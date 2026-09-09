@@ -744,6 +744,105 @@ async function translateWithMyMemoryOnce(
 
 }
 
+// ========================================
+// CLEANUP MACHINE TRANSLATION
+// ========================================
+//
+// MyMemory can sometimes leave English
+// fragments inside otherwise translated text.
+//
+// This cleanup is especially useful for
+// short appointment-service phrases.
+//
+
+function cleanTranslatedText(
+    text,
+    targetLanguageCode
+) {
+    let cleaned =
+        String(text || "").trim();
+
+    const target =
+        String(
+            targetLanguageCode || ""
+        )
+            .trim()
+            .toLowerCase();
+
+    // ------------------------------------
+    // TAMIL
+    // ------------------------------------
+
+    if (target === "ta") {
+
+        const tamilReplacements = [
+
+            // Common MyMemory mixed-language result
+            [
+                /எந்த மருத்துவர்\s+appointment\s+with\s+பதிவு செய்ய விரும்புகிறார்/gi,
+                "எந்த மருத்துவருடன் சந்திப்பை முன்பதிவு செய்ய விரும்புகிறீர்கள்"
+            ],
+
+            // Another possible variation
+            [
+                /எந்த மருத்துவர்\s+appointment with\s+பதிவு/gi,
+                "எந்த மருத்துவருடன் சந்திப்பை முன்பதிவு"
+            ],
+
+            // English phrase accidentally left behind
+            [
+                /\bappointment with\b/gi,
+                "சந்திப்பை"
+            ],
+
+            [
+                /\bappointment\b/gi,
+                "சந்திப்பு"
+            ],
+
+            [
+                /\bbook an appointment\b/gi,
+                "சந்திப்பை முன்பதிவு செய்ய"
+            ],
+
+            [
+                /\bbook appointment\b/gi,
+                "சந்திப்பை முன்பதிவு செய்ய"
+            ],
+
+            [
+                /\bwith\b/gi,
+                "உடன்"
+            ]
+        ];
+
+        for (
+            const [pattern, replacement]
+            of tamilReplacements
+        ) {
+            cleaned =
+                cleaned.replace(
+                    pattern,
+                    replacement
+                );
+        }
+    }
+
+    // ------------------------------------
+    // REMOVE EXCESS SPACES
+    // ------------------------------------
+
+    cleaned =
+        cleaned
+            .replace(
+                /\s{2,}/g,
+                " "
+            )
+            .trim();
+
+    return cleaned;
+}
+
 
 // ========================================
 // MYMEMORY TRANSLATION
@@ -801,11 +900,16 @@ async function translateWithMyMemory(
         );
 
 
-    return restoreImportantValues(
-        translatedText,
-        protectedResult.values
-    );
+    const restoredText =
+        restoreImportantValues(
+            translatedText,
+            protectedResult.values
+        );
 
+    return cleanTranslatedText(
+        restoredText,
+        targetLanguageCode
+    );
 }
 
 

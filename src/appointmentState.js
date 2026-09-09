@@ -746,7 +746,7 @@ export function extractTime(message) {
 // EXTRACT PHONE
 // ========================================
 
-function extractPhone(message) {
+/*function extractPhone(message) {
 
     const validation =
         validatePhoneNumber(
@@ -757,6 +757,168 @@ function extractPhone(message) {
         ? validation.phone
         : null;
 
+}*/
+
+
+// ========================================
+// EXTRACT PHONE
+// ========================================
+//
+// Supports:
+//
+// English:
+// 0 1 2 3 4 5 6 7 8 9
+// zero one two three four five six seven eight nine
+//
+// Tamil:
+// பூஜ்யம்
+// சைபர் / சைவர்கள்
+// ஒன்று
+// இரண்டு
+// மூன்று
+// நான்கு
+// ஐந்து
+// ஆறு
+// ஏழு
+// எட்டு
+// ஒன்பது
+//
+// Mixed voice input:
+// "ஒன்று இரண்டு 3 நான்கு 5"
+// ========================================
+
+// ========================================
+// EXTRACT PHONE
+// ========================================
+//
+// Supports:
+//
+// Numeric:
+// 1234567890
+//
+// English:
+// zero one two three four five six seven eight nine
+//
+// Tamil:
+// பூஜ்யம்
+// பூஜ்ஜியம்
+// சைபர்
+// சைவர்கள்
+// ஒன்று
+// இரண்டு
+// மூன்று
+// நான்கு
+// ஐந்து
+// ஆறு
+// ஏழு
+// எட்டு
+// ஒன்பது
+//
+// Mixed input:
+// ஒன்று இரண்டு 3 நான்கு 5
+// ========================================
+
+function extractPhone(message) {
+
+    let text =
+        String(message || "")
+            .trim()
+            .toLowerCase();
+
+    if (!text) {
+        return null;
+    }
+
+    // ----------------------------------------
+    // NORMALIZE SPOKEN DIGITS
+    // ----------------------------------------
+
+    const spokenDigitMap = [
+
+        // ZERO
+        [/\bzero\b/gi, "0"],
+        [/\boh\b/gi, "0"],
+
+        // Tamil zero / "cyber" speech-recognition variants
+        [/சைபர்/gi, "0"],
+        [/சைவர்கள்/gi, "0"],
+        [/சைபர் என்று/gi, "0"],
+        [/பூஜ்யம்/gi, "0"],
+        [/பூஜ்ஜியம்/gi, "0"],
+
+        // ONE
+        [/\bone\b/gi, "1"],
+        [/ஒன்று/gi, "1"],
+
+        // TWO
+        [/\btwo\b/gi, "2"],
+        [/இரண்டு/gi, "2"],
+
+        // THREE
+        [/\bthree\b/gi, "3"],
+        [/மூன்று/gi, "3"],
+
+        // FOUR
+        [/\bfour\b/gi, "4"],
+        [/நான்கு/gi, "4"],
+
+        // FIVE
+        [/\bfive\b/gi, "5"],
+        [/ஐந்து/gi, "5"],
+
+        // SIX
+        [/\bsix\b/gi, "6"],
+        [/ஆறு/gi, "6"],
+
+        // SEVEN
+        [/\bseven\b/gi, "7"],
+        [/ஏழு/gi, "7"],
+
+        // EIGHT
+        [/\beight\b/gi, "8"],
+        [/எட்டு/gi, "8"],
+
+        // NINE
+        [/\bnine\b/gi, "9"],
+        [/ஒன்பது/gi, "9"]
+    ];
+
+    // ----------------------------------------
+    // CONVERT SPOKEN DIGITS
+    // ----------------------------------------
+
+    for (
+        const [pattern, replacement]
+        of spokenDigitMap
+    ) {
+        text =
+            text.replace(
+                pattern,
+                replacement
+            );
+    }
+
+    // ----------------------------------------
+    // KEEP ONLY NUMERIC DIGITS
+    // ----------------------------------------
+
+    const digits =
+        text.replace(
+            /\D/g,
+            ""
+        );
+
+    // ----------------------------------------
+    // NOVACARE DEMO PHONE VALIDATION
+    // ----------------------------------------
+
+    if (
+        digits.length !== 10
+    ) {
+        return null;
+    }
+
+    return digits;
 }
 
 
@@ -773,27 +935,162 @@ function extractPhone(message) {
 
 function validatePhoneNumber(message) {
 
-    const raw =
-        String(message)
-            .trim();
+    let text =
+        String(message || "")
+            .trim()
+            .toLowerCase();
 
-
-    if (
-        /[a-zA-Z]/.test(raw)
-    ) {
+    if (!text) {
 
         return {
             valid: false,
             reason:
-                "Phone numbers shouldn't contain letters. Please say or enter a 10 digit phone number."
+                "Please say or enter your 10 digit phone number."
         };
 
     }
 
 
-    const digits =
-        raw.replace(/\D/g, "");
+    // ========================================
+    // NORMALIZE TAMIL SPOKEN DIGITS
+    // ========================================
 
+    const tamilDigitMap = [
+
+        [/பூஜ்யம்/gi, "0"],
+        [/பூஜ்ஜியம்/gi, "0"],
+        [/சைபர்/gi, "0"],
+        [/சைவர்/gi, "0"],
+        [/சைவர்கள்/gi, "0"],
+
+        [/ஒன்று/gi, "1"],
+        [/இரண்டு/gi, "2"],
+        [/மூன்று/gi, "3"],
+        [/நான்கு/gi, "4"],
+        [/ஐந்து/gi, "5"],
+        [/ஆறு/gi, "6"],
+        [/ஏழு/gi, "7"],
+        [/எட்டு/gi, "8"],
+        [/ஒன்பது/gi, "9"]
+
+    ];
+
+
+    // ========================================
+    // NORMALIZE ENGLISH SPOKEN DIGITS
+    // ========================================
+
+    const englishDigitMap = [
+
+        [/\bzero\b/gi, "0"],
+        [/\boh\b/gi, "0"],
+
+        [/\bone\b/gi, "1"],
+        [/\btwo\b/gi, "2"],
+        [/\bthree\b/gi, "3"],
+        [/\bfour\b/gi, "4"],
+        [/\bfive\b/gi, "5"],
+        [/\bsix\b/gi, "6"],
+        [/\bseven\b/gi, "7"],
+        [/\beight\b/gi, "8"],
+        [/\bnine\b/gi, "9"]
+
+    ];
+
+
+    // ========================================
+    // APPLY TAMIL DIGIT CONVERSION
+    // ========================================
+
+    for (
+        const [pattern, replacement]
+        of tamilDigitMap
+    ) {
+
+        text =
+            text.replace(
+                pattern,
+                replacement
+            );
+
+    }
+
+
+    // ========================================
+    // APPLY ENGLISH DIGIT CONVERSION
+    // ========================================
+
+    for (
+        const [pattern, replacement]
+        of englishDigitMap
+    ) {
+
+        text =
+            text.replace(
+                pattern,
+                replacement
+            );
+
+    }
+
+
+    // ========================================
+    // NORMALIZE TAMIL NUMERIC DIGITS
+    //
+    // ௦ ௧ ௨ ௩ ௪ ௫ ௬ ௭ ௮ ௯
+    // ========================================
+
+    const tamilNumericDigits = {
+        "௦": "0",
+        "௧": "1",
+        "௨": "2",
+        "௩": "3",
+        "௪": "4",
+        "௫": "5",
+        "௬": "6",
+        "௭": "7",
+        "௮": "8",
+        "௯": "9"
+    };
+
+
+    text =
+        text.replace(
+            /[௦-௯]/g,
+            digit =>
+                tamilNumericDigits[digit]
+        );
+
+
+    // ========================================
+    // EXTRACT NUMBERS
+    // ========================================
+
+    const digits =
+        text.replace(
+            /\D/g,
+            ""
+        );
+
+
+    // ========================================
+    // DEBUG LOG
+    // ========================================
+
+    console.log(
+        "PHONE VALIDATION:",
+        {
+            originalMessage: message,
+            normalizedText: text,
+            extractedDigits: digits,
+            digitCount: digits.length
+        }
+    );
+
+
+    // ========================================
+    // EXACTLY 10 DIGITS
+    // ========================================
 
     if (
         digits.length !== 10
@@ -808,9 +1105,17 @@ function validatePhoneNumber(message) {
     }
 
 
+    // ========================================
+    // SUCCESS
+    // ========================================
+
     return {
+
         valid: true,
-        phone: digits
+
+        phone:
+            digits
+
     };
 
 }
